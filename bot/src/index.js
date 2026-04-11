@@ -58,8 +58,14 @@ app.message(async ({ message, say }) => {
         const userText = text.replace(/^!note\s*/i, '').trim();
         const { name, company, context } = await parseProspectFromImage(imageUrl, userText);
 
+        // Extract any URLs the user typed and append them to context so they're always saved
+        const urls = userText.match(/https?:\/\/[^\s]+/g) || [];
+        const contextWithUrls = urls.length > 0
+          ? `${context} | ${urls.join(' ')}`
+          : context;
+
         const { error } = await supabase.from('memories').insert([
-          { name, company, context, tag: 'other' },
+          { name, company, context: contextWithUrls, tag: 'other' },
         ]);
         if (error) throw new Error(error.message);
 
