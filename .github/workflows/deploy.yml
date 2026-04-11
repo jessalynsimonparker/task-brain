@@ -1,0 +1,49 @@
+# deploy.yml — auto-deploys the React dashboard to GitHub Pages on every push to main
+# The dashboard lives in the /dashboard subfolder of this repo.
+
+name: Deploy Dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboard/**'   # Only re-deploy when dashboard files change
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package.json
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      # 4. Inject Supabase credentials from GitHub Secrets into the build
+      #    (Add these in your repo: Settings > Secrets and variables > Actions)
+      - name: Build
+        working-directory: dashboard
+        env:
+          REACT_APP_SUPABASE_URL: ${{ secrets.REACT_APP_SUPABASE_URL }}
+          REACT_APP_SUPABASE_ANON_KEY: ${{ secrets.REACT_APP_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      # 5. Deploy the build/ folder to the gh-pages branch
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dashboard/build
+          publish_branch: gh-pages
