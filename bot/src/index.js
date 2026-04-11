@@ -5,9 +5,10 @@ require('dotenv').config();
 
 const { App } = require('@slack/bolt');
 const axios = require('axios');
-const { handleTask, handleNote, handleTasks, handleDone, handleSnooze, handleWho } = require('./commands');
+const { handleTask, handleNote, handleDone, handleSnooze, handleWho } = require('./commands');
 const { parseProspectFromImages } = require('./imageParser');
 const { startReminderPoller } = require('./reminders');
+const { tasksListBlocks } = require('./blocks');
 const supabase = require('./supabase');
 
 // ─── Validate required env vars on startup ───────────────────────────────────
@@ -151,11 +152,76 @@ app.message(async ({ message, say }) => {
   // ── Text commands ──────────────────────────────────────────────────────────
   if (text.startsWith('!task '))        await handleTask(text.slice(6), say);
   else if (text.startsWith('!note '))   await handleNote(text.slice(6), say);
-  else if (text === '!tasks')           await handleTasks(say);
+  else if (text === '!tasks')           await handleTasksBlocks(say);
   else if (text.startsWith('!done '))   await handleDone(text.slice(6), say);
   else if (text.startsWith('!snooze ')) await handleSnooze(text.slice(8), say);
   else if (text.startsWith('!who '))    await handleWho(text.slice(5), say);
   else if (text === '!help')            await handleHelp(say);
+});
+
+// ─── !tasks with buttons ─────────────────────────────────────────────────────
+async function handleTasksBlocks(say) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('done', false)
+    .order('added_at', { ascending: true });
+
+  if (error) { await say(`❌ Couldn't fetch tasks: ${error.message}`); return; }
+
+  await say({
+    text: `📋 Open Tasks (${(data || []).length})`,
+    blocks: tasksListBlocks(data || []),
+  });
+}
+
+// ─── Button action handlers ───────────────────────────────────────────────────
+
+// ✅ Done button
+app.action('task_done', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ done: true }).eq('id', taskId);
+
+  await client.chat.postMessage({
+    channel: body.channel.id,
+    text: `✅ Marked done: *${task?.title || 'task'}*`,
+  });
+});
+
+// ⏰ Snooze 1hr button
+app.action('task_snooze_1hr', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+  const newTime = new Date(Date.now() + 60 * 60_000).toISOString();
+
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ reminder_time: newTime, slack_scheduled: false }).eq('id', taskId);
+
+  await client.chat.postMessage({
+    channel: body.channel.id,
+    text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.`,
+  });
+});
+
+// 🌙 Snooze tomorrow button
+app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(10, 0, 0, 0);
+
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ reminder_time: tomorrow.toISOString(), slack_scheduled: false }).eq('id', taskId);
+
+  await client.chat.postMessage({
+    channel: body.channel.id,
+    text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.`,
+  });
 });
 
 // ─── !help ───────────────────────────────────────────────────────────────────
