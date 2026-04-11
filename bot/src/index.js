@@ -38,10 +38,6 @@ const CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Upload an image from a Slack file URL to Supabase Storage.
- * Returns the public URL, or null on failure.
- */
 async function uploadToStorage(slackUrl, fileId, mimeType) {
   try {
     const response = await axios.get(slackUrl, {
@@ -60,106 +56,12 @@ async function uploadToStorage(slackUrl, fileId, mimeType) {
   }
 }
 
-/**
- * Extract URLs from a string.
- */
 function extractUrls(text) {
   return text.match(/https?:\/\/[^\s]+/g) || [];
 }
 
-// ─── Message listener ────────────────────────────────────────────────────────
-app.message(async ({ message, say }) => {
-  if (message.subtype === 'bot_message' || message.bot_id) return;
-  if (message.channel !== CHANNEL_ID) return;
+// ─── Shared handlers (used by both ! commands and / slash commands) ───────────
 
-  const text = (message.text || '').trim();
-
-  // ── Image uploads ───────────────────────────────────────────────────────────
-  const imageFiles = (message.files || []).filter(f => f.mimetype?.startsWith('image/'));
-
-  if (imageFiles.length > 0) {
-
-    // ── !addto [name] + image: append screenshot to existing memory ────────────
-    if (text.toLowerCase().startsWith('!addto ')) {
-      const nameQuery = text.slice(7).trim();
-      await say(`🔍 Looking up _${nameQuery}_ and adding screenshot...`);
-
-      const { data: matches } = await supabase
-        .from('memories')
-        .select('*')
-        .ilike('name', `%${nameQuery}%`)
-        .order('added_at', { ascending: false })
-        .limit(1);
-
-      if (!matches?.length) {
-        await say(`❌ No memory found matching _"${nameQuery}"_ — try uploading without !addto to create a new entry.`);
-        return;
-      }
-
-      const memory = matches[0];
-
-      // Upload all new screenshots and collect their URLs
-      const newUrls = await Promise.all(
-        imageFiles.map(f => uploadToStorage(f.url_private_download || f.url_private, f.id, f.mimetype))
-      );
-      const validUrls = newUrls.filter(Boolean);
-
-      // Append new URLs to existing ones (comma-separated)
-      const existingUrls = memory.attachment_url ? memory.attachment_url.split(',') : [];
-      const allUrls = [...existingUrls, ...validUrls].join(',');
-
-      await supabase.from('memories').update({ attachment_url: allUrls }).eq('id', memory.id);
-      await say(`📎 Added ${validUrls.length} screenshot(s) to *${memory.name}*'s memory.`);
-      return;
-    }
-
-    // ── New memory from image(s) ───────────────────────────────────────────────
-    await say(`🔍 Got ${imageFiles.length > 1 ? imageFiles.length + ' images' : 'your image'} — parsing with Claude...`);
-
-    try {
-      const userText = text.replace(/^!note\s*/i, '').trim();
-
-      // Send all images to Claude in one call
-      const imageUrls = imageFiles.map(f => f.url_private_download || f.url_private);
-      const { name, company, context } = await parseProspectFromImages(imageUrls, userText);
-
-      // Append any typed URLs to context
-      const typedUrls = extractUrls(userText);
-      const contextWithUrls = typedUrls.length > 0
-        ? `${context} | ${typedUrls.join(' ')}`
-        : context;
-
-      // Upload all screenshots to storage
-      const storedUrls = await Promise.all(
-        imageFiles.map(f => uploadToStorage(f.url_private_download || f.url_private, f.id, f.mimetype))
-      );
-      const attachmentUrl = storedUrls.filter(Boolean).join(',');
-
-      const { error } = await supabase.from('memories').insert([{
-        name, company, context: contextWithUrls, tag: 'other',
-        attachment_url: attachmentUrl || null,
-      }]);
-      if (error) throw new Error(error.message);
-
-      await say(`🧠 Memory saved!\n*Name:* ${name}\n*Company:* ${company}\n*Context:* ${context}`);
-    } catch (err) {
-      console.error('[image] Parse error:', err.message);
-      await say(`❌ Couldn't parse image: ${err.message}`);
-    }
-    return;
-  }
-
-  // ── Text commands ──────────────────────────────────────────────────────────
-  if (text.startsWith('!task '))        await handleTask(text.slice(6), say);
-  else if (text.startsWith('!note '))   await handleNote(text.slice(6), say);
-  else if (text === '!tasks')           await handleTasksBlocks(say);
-  else if (text.startsWith('!done '))   await handleDone(text.slice(6), say);
-  else if (text.startsWith('!snooze ')) await handleSnooze(text.slice(8), say);
-  else if (text.startsWith('!who '))    await handleWho(text.slice(5), say);
-  else if (text === '!help')            await handleHelp(say);
-});
-
-// ─── !tasks with buttons ─────────────────────────────────────────────────────
 async function handleTasksBlocks(say) {
   const { data, error } = await supabase
     .from('tasks')
@@ -175,79 +77,213 @@ async function handleTasksBlocks(say) {
   });
 }
 
-// ─── Button action handlers ───────────────────────────────────────────────────
+async function handleDoneTasks(say) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('done', true)
+    .order('added_at', { ascending: false })
+    .limit(20); // show last 20 completed
 
-// ✅ Done button
-app.action('task_done', async ({ ack, body, client }) => {
-  await ack();
-  const taskId = body.actions[0].value;
+  if (error) { await say(`❌ Couldn't fetch tasks: ${error.message}`); return; }
+  if (!data?.length) { await say('No completed tasks yet.'); return; }
 
-  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
-  await supabase.from('tasks').update({ done: true }).eq('id', taskId);
-
-  await client.chat.postMessage({
-    channel: body.channel.id,
-    text: `✅ Marked done: *${task?.title || 'task'}*`,
+  const lines = data.map((t, i) => {
+    const date = new Date(t.added_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${i + 1}. ~~${t.title}~~ _${t.category} · ${date}_`;
   });
-});
 
-// ⏰ Snooze 1hr button
-app.action('task_snooze_1hr', async ({ ack, body, client }) => {
-  await ack();
-  const taskId = body.actions[0].value;
-  const newTime = new Date(Date.now() + 60 * 60_000).toISOString();
+  await say(`✅ *Completed Tasks (${data.length})*\n${lines.join('\n')}`);
+}
 
-  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
-  await supabase.from('tasks').update({ reminder_time: newTime, slack_scheduled: false }).eq('id', taskId);
-
-  await client.chat.postMessage({
-    channel: body.channel.id,
-    text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.`,
-  });
-});
-
-// 🌙 Snooze tomorrow button
-app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
-  await ack();
-  const taskId = body.actions[0].value;
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(10, 0, 0, 0);
-
-  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
-  await supabase.from('tasks').update({ reminder_time: tomorrow.toISOString(), slack_scheduled: false }).eq('id', taskId);
-
-  await client.chat.postMessage({
-    channel: body.channel.id,
-    text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.`,
-  });
-});
-
-// ─── !help ───────────────────────────────────────────────────────────────────
 async function handleHelp(say) {
   await say(
 `📋 *Task Brain Commands*
 ━━━━━━━━━━━━━━━━
 *Tasks*
-\`!task call sarah tomorrow 9am\` — create a task (AI understands natural language)
-\`!tasks\` — list all open tasks
-\`!done [name]\` — mark task complete
-\`!snooze [name]\` — snooze to tomorrow 10am
-\`!snooze [name] 1hr\` — snooze 1 hour
-\`!snooze [name] friday 2pm\` — snooze to custom time
+\`/task call sarah tomorrow 9am\` — create a task (AI understands natural language)
+\`/tasks\` — list open tasks with Done/Snooze buttons
+\`/done-tasks\` — list completed tasks
+\`/done [name]\` — mark task complete
+\`/snooze [name]\` — snooze to tomorrow 10am
+\`/snooze [name] 1hr\` — snooze 1 hour
+\`/snooze [name] friday 2pm\` — snooze to custom time
 
 *Memory Log*
-\`!note Jane Smith / Acme — met at SaaStr\` — save a contact
-\`!who Jane\` — look up how you know someone
-📸 *Upload a screenshot* — Claude auto-saves name, company, context
-📸 *Upload screenshot + type a URL* — URL is saved with the memory
-\`!addto [name]\` *+ screenshot* — add screenshot to existing contact
+\`/note Jane Smith / Acme — met at SaaStr\` — save a contact
+\`/who Jane\` — look up how you know someone
+📸 *Drop a screenshot* — Claude auto-saves name, company, context
+📸 *Drop screenshot + type a URL* — URL is saved with the memory
+\`/addto [name]\` *+ screenshot* — add screenshot to existing contact
 
 *Other*
-\`!help\` — show this list`
+\`/help\` — show this list`
   );
 }
+
+// ─── Image upload handler (shared logic) ─────────────────────────────────────
+
+async function handleImageUpload(imageFiles, text, say) {
+  // !addto / /addto: append screenshot to existing memory
+  const addtoMatch = text.match(/^!?addto\s+(.+)/i);
+  if (addtoMatch) {
+    const nameQuery = addtoMatch[1].trim();
+    await say(`🔍 Looking up _${nameQuery}_ and adding screenshot...`);
+
+    const { data: matches } = await supabase
+      .from('memories')
+      .select('*')
+      .ilike('name', `%${nameQuery}%`)
+      .order('added_at', { ascending: false })
+      .limit(1);
+
+    if (!matches?.length) {
+      await say(`❌ No memory found matching _"${nameQuery}"_ — upload without /addto to create a new entry.`);
+      return;
+    }
+
+    const memory = matches[0];
+    const newUrls = await Promise.all(
+      imageFiles.map(f => uploadToStorage(f.url_private_download || f.url_private, f.id, f.mimetype))
+    );
+    const validUrls = newUrls.filter(Boolean);
+    const existingUrls = memory.attachment_url ? memory.attachment_url.split(',') : [];
+    const allUrls = [...existingUrls, ...validUrls].join(',');
+
+    await supabase.from('memories').update({ attachment_url: allUrls }).eq('id', memory.id);
+    await say(`📎 Added ${validUrls.length} screenshot(s) to *${memory.name}*'s memory.`);
+    return;
+  }
+
+  // New memory from image(s)
+  await say(`🔍 Got ${imageFiles.length > 1 ? imageFiles.length + ' images' : 'your image'} — parsing with Claude...`);
+
+  try {
+    const userText = text.replace(/^!?note\s*/i, '').trim();
+    const imageUrls = imageFiles.map(f => f.url_private_download || f.url_private);
+    const { name, company, context } = await parseProspectFromImages(imageUrls, userText);
+
+    const typedUrls = extractUrls(userText);
+    const contextWithUrls = typedUrls.length > 0 ? `${context} | ${typedUrls.join(' ')}` : context;
+
+    const storedUrls = await Promise.all(
+      imageFiles.map(f => uploadToStorage(f.url_private_download || f.url_private, f.id, f.mimetype))
+    );
+    const attachmentUrl = storedUrls.filter(Boolean).join(',');
+
+    const { error } = await supabase.from('memories').insert([{
+      name, company, context: contextWithUrls, tag: 'other',
+      attachment_url: attachmentUrl || null,
+    }]);
+    if (error) throw new Error(error.message);
+
+    await say(`🧠 Memory saved!\n*Name:* ${name}\n*Company:* ${company}\n*Context:* ${context}${attachmentUrl ? '\n📎 Screenshot saved' : ''}`);
+  } catch (err) {
+    console.error('[image] Parse error:', err.message);
+    await say(`❌ Couldn't parse image: ${err.message}`);
+  }
+}
+
+// ─── Message listener (! commands + image uploads) ───────────────────────────
+app.message(async ({ message, say }) => {
+  if (message.subtype === 'bot_message' || message.bot_id) return;
+  if (message.channel !== CHANNEL_ID) return;
+
+  const text = (message.text || '').trim();
+  const imageFiles = (message.files || []).filter(f => f.mimetype?.startsWith('image/'));
+
+  if (imageFiles.length > 0) {
+    await handleImageUpload(imageFiles, text, say);
+    return;
+  }
+
+  if (text.startsWith('!task '))        await handleTask(text.slice(6), say);
+  else if (text.startsWith('!note '))   await handleNote(text.slice(6), say);
+  else if (text === '!tasks')           await handleTasksBlocks(say);
+  else if (text === '!done-tasks')      await handleDoneTasks(say);
+  else if (text.startsWith('!done '))   await handleDone(text.slice(6), say);
+  else if (text.startsWith('!snooze ')) await handleSnooze(text.slice(8), say);
+  else if (text.startsWith('!who '))    await handleWho(text.slice(5), say);
+  else if (text === '!help')            await handleHelp(say);
+});
+
+// ─── Slash command listeners (/commands with autocomplete) ────────────────────
+
+app.command('/task', async ({ ack, command, say }) => {
+  await ack();
+  await handleTask(command.text, say);
+});
+
+app.command('/note', async ({ ack, command, say }) => {
+  await ack();
+  await handleNote(command.text, say);
+});
+
+app.command('/tasks', async ({ ack, say }) => {
+  await ack();
+  await handleTasksBlocks(say);
+});
+
+app.command('/done-tasks', async ({ ack, say }) => {
+  await ack();
+  await handleDoneTasks(say);
+});
+
+app.command('/done', async ({ ack, command, say }) => {
+  await ack();
+  await handleDone(command.text, say);
+});
+
+app.command('/snooze', async ({ ack, command, say }) => {
+  await ack();
+  await handleSnooze(command.text, say);
+});
+
+app.command('/who', async ({ ack, command, say }) => {
+  await ack();
+  await handleWho(command.text, say);
+});
+
+app.command('/addto', async ({ ack, command, say }) => {
+  await ack();
+  // /addto needs an image — instruct user to use it with a file upload message
+  await say(`To add a screenshot to _${command.text}_'s memory, type \`!addto ${command.text}\` and attach the image in the same message. Slash commands can't accept file uploads directly.`);
+});
+
+app.command('/help', async ({ ack, say }) => {
+  await ack();
+  await handleHelp(say);
+});
+
+// ─── Button action handlers ───────────────────────────────────────────────────
+
+app.action('task_done', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ done: true }).eq('id', taskId);
+  await client.chat.postMessage({ channel: body.channel.id, text: `✅ Marked done: *${task?.title || 'task'}*` });
+});
+
+app.action('task_snooze_1hr', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+  const newTime = new Date(Date.now() + 60 * 60_000).toISOString();
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ reminder_time: newTime, slack_scheduled: false }).eq('id', taskId);
+  await client.chat.postMessage({ channel: body.channel.id, text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.` });
+});
+
+app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
+  await ack();
+  const taskId = body.actions[0].value;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(10, 0, 0, 0);
+  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
+  await supabase.from('tasks').update({ reminder_time: tomorrow.toISOString(), slack_scheduled: false }).eq('id', taskId);
+  await client.chat.postMessage({ channel: body.channel.id, text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.` });
+});
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 (async () => {
