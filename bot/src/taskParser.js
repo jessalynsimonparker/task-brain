@@ -1,15 +1,9 @@
 // taskParser.js — uses Claude to parse natural language task commands
-// Instead of rigid regex, Claude extracts title, category, and reminder time
-// from whatever the user types naturally.
 
 const Anthropic = require('@anthropic-ai/sdk');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-/**
- * Send the raw task text to Claude and get back structured data.
- * Returns { title, category, reminder_time (ISO string or null) }
- */
 async function parseTaskWithAI(text) {
   const now = new Date();
   const nowStr = now.toLocaleString('en-US', {
@@ -18,34 +12,36 @@ async function parseTaskWithAI(text) {
   });
 
   const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001', // Fast + cheap for this simple parsing task
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 256,
     messages: [
       {
         role: 'user',
         content: `Today is ${nowStr}.
 
-Parse this task command and reply ONLY with valid JSON, no extra text:
+Parse this task and reply ONLY with valid JSON, no markdown, no extra text:
 "${text}"
 
-Return this exact format:
 {
-  "title": "the task title without the date/time",
-  "category": "call" | "email" | "linkedin" | "other",
-  "reminder_time": "ISO 8601 datetime string or null"
+  "title": "task description only — remove all date/time words",
+  "category": "call or email or linkedin or other",
+  "reminder_time": "ISO 8601 string like 2026-04-12T09:00:00 or null if no time mentioned"
 }
 
-Rules:
-- category: infer from keywords (call/phone → call, email → email, linkedin → linkedin, else → other)
-- reminder_time: convert any date/time mention to ISO 8601. If no time given but a date is mentioned, default to 9:00 AM. If no date/time at all, return null.
-- title: the task description only, no date/time words in it`
+Examples:
+"call sarah tomorrow 9am" → {"title":"call sarah","category":"call","reminder_time":"2026-04-12T09:00:00"}
+"email john about proposal" → {"title":"email john about proposal","category":"email","reminder_time":null}
+"linkedin message david next monday" → {"title":"linkedin message david","category":"linkedin","reminder_time":"2026-04-13T09:00:00"}`
       }
     ]
   });
 
   const raw = message.content[0].text.trim();
+  console.log('[taskParser] raw response:', raw);
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  return JSON.parse(cleaned);
+  const parsed = JSON.parse(cleaned);
+  console.log('[taskParser] parsed:', JSON.stringify(parsed));
+  return parsed;
 }
 
 module.exports = { parseTaskWithAI };
