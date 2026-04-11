@@ -107,6 +107,15 @@ export default function MemoryLog({ memories }) {
             <div style={s.name}>{m.name}</div>
             {m.company && <div style={s.company}>{m.company}</div>}
             {m.context && <div style={s.context}>"{m.context}"</div>}
+            {m.attachment_url && (
+              <a href={m.attachment_url} target="_blank" rel="noreferrer">
+                <img
+                  src={m.attachment_url}
+                  alt="screenshot"
+                  style={{ maxWidth: '180px', maxHeight: '100px', borderRadius: '6px', marginTop: '8px', display: 'block' }}
+                />
+              </a>
+            )}
             <div style={s.meta}>
               <span>Added {fmtDate(m.added_at)}</span>
             </div>

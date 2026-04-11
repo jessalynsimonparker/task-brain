@@ -54,18 +54,38 @@ app.message(async ({ message, say }) => {
 
       try {
         const imageUrl = file.url_private_download || file.url_private;
-        // Pass any text the user typed alongside the image as extra context
         const userText = text.replace(/^!note\s*/i, '').trim();
+
+        // Parse the image with Claude
         const { name, company, context } = await parseProspectFromImage(imageUrl, userText);
 
-        // Extract any URLs the user typed and append them to context so they're always saved
+        // Append any URLs the user typed to context so they're always preserved
         const urls = userText.match(/https?:\/\/[^\s]+/g) || [];
         const contextWithUrls = urls.length > 0
           ? `${context} | ${urls.join(' ')}`
           : context;
 
+        // Upload the original screenshot to Supabase Storage so it's viewable on the dashboard
+        const axios = require('axios');
+        const imgResponse = await axios.get(imageUrl, {
+          responseType: 'arraybuffer',
+          headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+        });
+        const storagePath = `screenshots/${Date.now()}-${file.id}.png`;
+        const { error: storageErr } = await supabase.storage
+          .from('task-attachments')
+          .upload(storagePath, imgResponse.data, { contentType: file.mimetype || 'image/png' });
+
+        let attachmentUrl = null;
+        if (!storageErr) {
+          const { data: urlData } = supabase.storage
+            .from('task-attachments')
+            .getPublicUrl(storagePath);
+          attachmentUrl = urlData.publicUrl;
+        }
+
         const { error } = await supabase.from('memories').insert([
-          { name, company, context: contextWithUrls, tag: 'other' },
+          { name, company, context: contextWithUrls, tag: 'other', attachment_url: attachmentUrl },
         ]);
         if (error) throw new Error(error.message);
 
