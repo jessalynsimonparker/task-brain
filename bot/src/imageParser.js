@@ -1,4 +1,4 @@
-// imageParser.js — sends a screenshot to Claude and extracts prospect info
+// imageParser.js — sends one or more screenshots to Claude and extracts prospect info
 // Uses Haiku (cheapest model) since this is a simple extraction task.
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -17,31 +17,27 @@ async function downloadImage(url) {
 }
 
 /**
- * Parse a prospect from an image + optional text context the user typed.
+ * Parse prospect info from one or more images + optional user text.
+ * Sending multiple images lets Claude see profile + post together.
  * Returns { name, company, context }
  */
-async function parseProspectFromImage(imageUrl, userText = '') {
-  const { base64, mimeType } = await downloadImage(imageUrl);
+async function parseProspectFromImages(imageUrls, userText = '') {
+  // Download all images in parallel
+  const images = await Promise.all(imageUrls.map(downloadImage));
 
-  // Include any text the user typed alongside the image as extra context
   const extraContext = userText
-    ? `\nThe user also included this note with the image: "${userText}"`
+    ? `\nThe user also included this note: "${userText}"`
     : '';
 
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001', // Cheapest model, supports vision
-    max_tokens: 256,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mimeType, data: base64 },
-          },
-          {
-            type: 'text',
-            text: `This is a screenshot from LinkedIn or a similar professional network.${extraContext}
+  // Build content array: all images first, then the text prompt
+  const content = [
+    ...images.map(({ base64, mimeType }) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: mimeType, data: base64 },
+    })),
+    {
+      type: 'text',
+      text: `These are screenshots from LinkedIn or a similar professional network.${extraContext}
 
 Extract the prospect info and reply ONLY in this exact JSON format (no extra text):
 {
@@ -49,10 +45,13 @@ Extract the prospect info and reply ONLY in this exact JSON format (no extra tex
   "company": "Company Name or Unknown",
   "context": "One sentence: who this person is and what the interaction was"
 }`,
-          },
-        ],
-      },
-    ],
+    },
+  ];
+
+  const message = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 256,
+    messages: [{ role: 'user', content }],
   });
 
   const raw = message.content[0].text.trim();
@@ -60,4 +59,4 @@ Extract the prospect info and reply ONLY in this exact JSON format (no extra tex
   return JSON.parse(cleaned);
 }
 
-module.exports = { parseProspectFromImage };
+module.exports = { parseProspectFromImages };
