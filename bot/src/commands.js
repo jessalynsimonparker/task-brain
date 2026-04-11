@@ -2,6 +2,7 @@
 // Each exported function receives (text, say) and does its work.
 
 const supabase = require('./supabase');
+const { parseTaskWithAI } = require('./taskParser');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -78,38 +79,41 @@ async function findTaskByTitle(partial) {
 // ─── Command Handlers ────────────────────────────────────────────────────────
 
 /**
- * !task [title] [optional: tomorrow 9am / today 2pm]
- * Creates a new task. Infers category from title keywords.
+ * !task [anything natural]
+ * Creates a new task. Uses Claude to parse title, category, and date/time.
  *
  * Examples:
- *   !task Call Sarah tomorrow 9am
- *   !task Email John about proposal
+ *   !task call sarah next friday afternoon
+ *   !task email john about proposal april 15
+ *   !task linkedin message david tomorrow
  */
 async function handleTask(text, say) {
-  const timeMatch = text.match(
-    /\s+((?:today|tomorrow)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*$/i
-  );
+  let title, category, reminder_time;
 
-  let title = text.trim();
-  let reminderTime = null;
-
-  if (timeMatch) {
-    title = text.slice(0, timeMatch.index).trim();
-    reminderTime = parseReminderTime(timeMatch[1]);
+  try {
+    // Use Claude to understand the natural language input
+    const parsed = await parseTaskWithAI(text.trim());
+    title = parsed.title;
+    category = parsed.category;
+    reminder_time = parsed.reminder_time || null;
+  } catch (err) {
+    // If AI parsing fails, fall back to using the raw text as the title
+    console.error('[handleTask] AI parse failed, using raw text:', err.message);
+    title = text.trim();
+    category = inferCategory(title);
+    reminder_time = null;
   }
-
-  const category = inferCategory(title);
 
   const { error } = await supabase.from('tasks').insert([{
     title,
     category,
-    reminder_time: reminderTime?.toISOString() ?? null,
+    reminder_time,
   }]);
 
   if (error) { await say(`❌ Couldn't create task: ${error.message}`); return; }
 
-  const reminderNote = reminderTime
-    ? `\nReminder: *${reminderTime.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}*`
+  const reminderNote = reminder_time
+    ? `\nReminder: *${new Date(reminder_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}*`
     : '';
 
   await say(`✅ Task created: *${title}*\nCategory: ${category}${reminderNote}`);
