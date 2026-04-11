@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+dashboard/node_modules/
+bot/node_modules/
+
+# Build output
+dashboard/build/
+
+# Environment variables — NEVER commit these
+.env
+bot/.env
+dashboard/.env
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
