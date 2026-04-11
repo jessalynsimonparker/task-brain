@@ -1,15 +1,11 @@
-// imageParser.js — sends a screenshot/image to Claude and extracts prospect info
-// Claude looks at the image and returns: name, company, context
+// imageParser.js — sends a screenshot to Claude and extracts prospect info
+// Uses Haiku (cheapest model) since this is a simple extraction task.
 
 const Anthropic = require('@anthropic-ai/sdk');
 const axios = require('axios');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-/**
- * Downloads an image from a Slack file URL and converts it to base64.
- * Slack file URLs require a Bearer token to access.
- */
 async function downloadImage(url) {
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
@@ -21,15 +17,20 @@ async function downloadImage(url) {
 }
 
 /**
- * Sends the image to Claude and asks it to extract prospect info.
- * Returns { name, company, context } or throws on failure.
+ * Parse a prospect from an image + optional text context the user typed.
+ * Returns { name, company, context }
  */
-async function parseProspectFromImage(imageUrl) {
+async function parseProspectFromImage(imageUrl, userText = '') {
   const { base64, mimeType } = await downloadImage(imageUrl);
 
+  // Include any text the user typed alongside the image as extra context
+  const extraContext = userText
+    ? `\nThe user also included this note with the image: "${userText}"`
+    : '';
+
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 512,
+    model: 'claude-haiku-4-5-20251001', // Cheapest model, supports vision
+    max_tokens: 256,
     messages: [
       {
         role: 'user',
@@ -40,12 +41,13 @@ async function parseProspectFromImage(imageUrl) {
           },
           {
             type: 'text',
-            text: `This is a screenshot from LinkedIn or a similar professional network.
-Extract the following and reply ONLY in this exact JSON format (no extra text):
+            text: `This is a screenshot from LinkedIn or a similar professional network.${extraContext}
+
+Extract the prospect info and reply ONLY in this exact JSON format (no extra text):
 {
   "name": "Full Name or Unknown",
   "company": "Company Name or Unknown",
-  "context": "One sentence describing who this person is or what was notable about the post/interaction"
+  "context": "One sentence: who this person is and what the interaction was"
 }`,
           },
         ],
@@ -54,8 +56,6 @@ Extract the following and reply ONLY in this exact JSON format (no extra text):
   });
 
   const raw = message.content[0].text.trim();
-
-  // Strip markdown code fences if Claude wraps the JSON
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   return JSON.parse(cleaned);
 }

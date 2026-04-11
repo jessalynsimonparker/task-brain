@@ -54,7 +54,9 @@ app.message(async ({ message, say }) => {
 
       try {
         const imageUrl = file.url_private_download || file.url_private;
-        const { name, company, context } = await parseProspectFromImage(imageUrl);
+        // Pass any text the user typed alongside the image as extra context
+        const userText = text.replace(/^!note\s*/i, '').trim();
+        const { name, company, context } = await parseProspectFromImage(imageUrl, userText);
 
         const { error } = await supabase.from('memories').insert([
           { name, company, context, tag: 'other' },
