@@ -30,10 +30,16 @@ Parse this task and reply ONLY with valid JSON, no markdown, no extra text:
 
 The user is in Pacific time (America/Los_Angeles). Always include the -07:00 or -08:00 offset in reminder_time (PDT is -07:00, PST is -08:00).
 
+Time parsing rules:
+- "120pm" or "120 pm" means 1:20 PM (not 12:00 PM) — treat digits before "am/pm" as HHMM, so 120=1:20, 230=2:30, 900=9:00
+- "12pm" means noon (12:00 PM)
+- "1pm" means 1:00 PM
+
 Examples:
 "call sarah tomorrow 9am" → {"title":"call sarah","category":"call","reminder_time":"2026-04-12T09:00:00-07:00"}
 "email john about proposal" → {"title":"email john about proposal","category":"email","reminder_time":null}
-"linkedin message david next monday" → {"title":"linkedin message david","category":"linkedin","reminder_time":"2026-04-13T09:00:00-07:00"}`
+"linkedin message david next monday" → {"title":"linkedin message david","category":"linkedin","reminder_time":"2026-04-13T09:00:00-07:00"}
+"message bridget 120pm today" → {"title":"message bridget","category":"other","reminder_time":"2026-04-13T13:20:00-07:00"}`
       }
     ]
   });
