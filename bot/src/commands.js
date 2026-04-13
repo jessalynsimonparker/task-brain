@@ -127,26 +127,53 @@ async function handleTask(text, say) {
  *   !note Jane Smith / Acme Corp — met at SaaStr, interested in Q3 deal
  */
 async function handleNote(text, say) {
-  const match = text.match(/^(.+?)\s*\/\s*(.+?)\s*—\s*(.+)$/);
+  // Accepts any of:
+  //   Jane Smith / Acme — met at SaaStr
+  //   Jane Smith / Acme - met at SaaStr
+  //   Jane Smith - met at SaaStr     (no company)
+  //   Jane Smith / Acme              (no context)
+  //   Jane Smith                     (name only)
 
-  if (!match) {
-    await say(
-      '❌ Format: `!note [name] / [company] — [context]`\nExample: `!note Jane Smith / Acme — met at SaaStr`'
-    );
+  let name, company = null, context = null;
+
+  // name / company — context  (em dash or hyphen)
+  const full = text.match(/^(.+?)\s*\/\s*(.+?)\s*(?:—|-{1,2})\s*(.+)$/);
+  if (full) {
+    [, name, company, context] = full;
+  } else {
+    // name / company  (no context separator)
+    const withCompany = text.match(/^(.+?)\s*\/\s*(.+)$/);
+    if (withCompany) {
+      [, name, company] = withCompany;
+    } else {
+      // name — context  (no company)
+      const withContext = text.match(/^(.+?)\s*(?:—|-{1,2})\s*(.+)$/);
+      if (withContext) {
+        [, name, context] = withContext;
+      } else {
+        // just a name
+        name = text.trim();
+      }
+    }
+  }
+
+  name = name.trim();
+  if (!name) {
+    await say('❌ At minimum include a name. Example: `/note Jane Smith / Acme - met at SaaStr`');
     return;
   }
 
-  const [, name, company, context] = match;
-
   const { error } = await supabase.from('memories').insert([{
-    name: name.trim(),
-    company: company.trim(),
-    context: context.trim(),
+    name,
+    company: company?.trim() || null,
+    context: context?.trim() || null,
   }]);
 
   if (error) { await say(`❌ Couldn't save memory: ${error.message}`); return; }
 
-  await say(`🧠 Memory saved: *${name.trim()}* at *${company.trim()}*\n_"${context.trim()}"_`);
+  const companyStr = company ? ` at *${company.trim()}*` : '';
+  const contextStr = context ? `\n_"${context.trim()}"_` : '';
+  await say(`🧠 Memory saved: *${name}*${companyStr}${contextStr}`);
 }
 
 /**
