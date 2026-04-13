@@ -23,8 +23,16 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Los_Angeles' });
 }
 
-export default function TaskList({ tasks }) {
+const inp = {
+  background: 'var(--surface2)', border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-sm)', color: 'var(--text)', fontSize: '13px',
+  padding: '7px 10px', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+export default function TaskList({ tasks, memories = [] }) {
   const [filter, setFilter] = useState('all');
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData]   = useState({});
 
   const visible = tasks.filter(t => {
     if (filter === 'done') return t.done;
@@ -35,6 +43,27 @@ export default function TaskList({ tasks }) {
   async function markDone(id)   { await supabase.from('tasks').update({ done: true }).eq('id', id); }
   async function deleteTask(id) { await supabase.from('tasks').delete().eq('id', id); }
   async function snooze(id)     { await supabase.from('tasks').update({ reminder_time: tomorrowAt10am(), slack_scheduled: false }).eq('id', id); }
+
+  function startEdit(t) {
+    setEditingId(t.id);
+    setEditData({
+      title: t.title, notes: t.notes || '', category: t.category,
+      reminder_time: t.reminder_time ? t.reminder_time.slice(0, 16) : '',
+      due_date: t.due_date || '', memory_id: t.memory_id || '',
+    });
+  }
+
+  async function saveEdit(id) {
+    await supabase.from('tasks').update({
+      title: editData.title.trim(),
+      notes: editData.notes.trim() || null,
+      category: editData.category,
+      reminder_time: editData.reminder_time || null,
+      due_date: editData.due_date || null,
+      memory_id: editData.memory_id || null,
+    }).eq('id', id);
+    setEditingId(null);
+  }
 
   return (
     <div>
@@ -65,7 +94,46 @@ export default function TaskList({ tasks }) {
         </div>
       )}
 
-      {visible.map(task => (
+      {visible.map(task => {
+        if (editingId === task.id) {
+          return (
+            <div key={task.id} style={{
+              background: 'var(--surface)', border: '1px solid var(--accent)',
+              borderRadius: 'var(--radius)', padding: '16px', marginBottom: '8px',
+              boxShadow: '0 0 0 3px var(--accent-glow)',
+            }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                <input style={{ ...inp, flex: 1, minWidth: '160px' }} value={editData.title} onChange={e => setEditData({ ...editData, title: e.target.value })} placeholder="Title" />
+                <select style={inp} value={editData.category} onChange={e => setEditData({ ...editData, category: e.target.value })}>
+                  <option value="call">Call</option>
+                  <option value="email">Email</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <textarea style={{ ...inp, width: '100%', boxSizing: 'border-box', resize: 'vertical', minHeight: '52px', marginBottom: '8px' }} value={editData.notes} onChange={e => setEditData({ ...editData, notes: e.target.value })} placeholder="Notes" />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'center' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Reminder</label>
+                <input style={{ ...inp, flex: 1 }} type="datetime-local" value={editData.reminder_time} onChange={e => setEditData({ ...editData, reminder_time: e.target.value })} />
+                <label style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Due</label>
+                <input style={{ ...inp, flex: 1 }} type="date" value={editData.due_date} onChange={e => setEditData({ ...editData, due_date: e.target.value })} />
+              </div>
+              {memories.length > 0 && (
+                <select style={{ ...inp, width: '100%', marginBottom: '10px', color: editData.memory_id ? 'var(--text)' : 'var(--text-muted)' }}
+                  value={editData.memory_id} onChange={e => setEditData({ ...editData, memory_id: e.target.value })}>
+                  <option value="">No linked contact</option>
+                  {memories.map(m => <option key={m.id} value={m.id}>{m.name}{m.company ? ` · ${m.company}` : ''}</option>)}
+                </select>
+              )}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => saveEdit(task.id)} style={{ background: 'var(--accent)', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, padding: '7px 18px', boxShadow: '0 2px 8px var(--accent-glow)' }}>Save</button>
+                <button onClick={() => setEditingId(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px', padding: '7px 14px' }}>Cancel</button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
         <div
           key={task.id}
           style={{
@@ -98,6 +166,14 @@ export default function TaskList({ tasks }) {
                 {task.title}
               </span>
             </div>
+            {task.memory_id && (() => {
+              const contact = memories.find(m => m.id === task.memory_id);
+              return contact ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'var(--accent)18', border: '1px solid var(--accent)40', borderRadius: '6px', color: 'var(--accent)', fontSize: '12px', fontWeight: 500, padding: '2px 9px', marginBottom: '6px' }}>
+                  → {contact.name}{contact.company ? ` · ${contact.company}` : ''}
+                </div>
+              ) : null;
+            })()}
             {task.notes && <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '5px', lineHeight: 1.5 }}>{task.notes}</div>}
             <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-faint)' }}>
               {task.due_date && <span>Due {task.due_date}</span>}
@@ -110,37 +186,15 @@ export default function TaskList({ tasks }) {
 
           {!task.done && (
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
-              <button
-                onClick={() => markDone(task.id)}
-                title="Mark done"
-                style={{
-                  background: 'var(--success)18', border: '1px solid var(--success)40',
-                  borderRadius: '8px', color: 'var(--success)', cursor: 'pointer',
-                  fontSize: '13px', fontWeight: 600, padding: '5px 12px',
-                }}
-              >Done</button>
-              <button
-                onClick={() => snooze(task.id)}
-                title="Snooze to tomorrow 10am"
-                style={{
-                  background: 'var(--warning)18', border: '1px solid var(--warning)40',
-                  borderRadius: '8px', color: 'var(--warning)', cursor: 'pointer',
-                  fontSize: '13px', fontWeight: 600, padding: '5px 12px',
-                }}
-              >Snooze</button>
-              <button
-                onClick={() => deleteTask(task.id)}
-                title="Delete"
-                style={{
-                  background: 'transparent', border: '1px solid var(--border)',
-                  borderRadius: '8px', color: 'var(--text-faint)', cursor: 'pointer',
-                  fontSize: '13px', padding: '5px 10px',
-                }}
-              >✕</button>
+              <button onClick={() => markDone(task.id)} style={{ background: 'var(--success)18', border: '1px solid var(--success)40', borderRadius: '8px', color: 'var(--success)', cursor: 'pointer', fontSize: '13px', fontWeight: 600, padding: '5px 12px' }}>Done</button>
+              <button onClick={() => snooze(task.id)} style={{ background: 'var(--warning)18', border: '1px solid var(--warning)40', borderRadius: '8px', color: 'var(--warning)', cursor: 'pointer', fontSize: '13px', fontWeight: 600, padding: '5px 12px' }}>Snooze</button>
+              <button onClick={() => startEdit(task)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px', fontWeight: 500, padding: '5px 12px' }}>Edit</button>
+              <button onClick={() => deleteTask(task.id)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '13px', padding: '5px 10px' }}>✕</button>
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

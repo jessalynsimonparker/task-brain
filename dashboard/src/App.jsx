@@ -259,14 +259,14 @@ export default function App() {
         {/* Content */}
         {activeTab === 'Tasks' && (
           <>
-            <AddTaskForm onAdded={loadTasks} />
+            <AddTaskForm onAdded={loadTasks} memories={memories} />
             <ScreenshotUploader
               onUploaded={(url) => {
                 navigator.clipboard?.writeText(url);
                 alert('Screenshot uploaded! URL copied to clipboard.');
               }}
             />
-            <TaskList tasks={tasks} />
+            <TaskList tasks={tasks} memories={memories} />
           </>
         )}
         {activeTab === 'Memory Log' && (

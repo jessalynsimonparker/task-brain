@@ -9,9 +9,9 @@ const inp = {
   padding: '9px 13px', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
 };
 
-const EMPTY = { title: '', notes: '', category: 'other', reminder_time: '', due_date: '' };
+const EMPTY = { title: '', notes: '', category: 'other', reminder_time: '', due_date: '', memory_id: '' };
 
-export default function AddTaskForm({ onAdded }) {
+export default function AddTaskForm({ onAdded, memories = [] }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -46,7 +46,8 @@ export default function AddTaskForm({ onAdded }) {
     setSaving(true); setError('');
     const { error: err } = await supabase.from('tasks').insert([{
       title: form.title.trim(), notes: form.notes.trim() || null,
-      category: form.category, reminder_time: form.reminder_time || null, due_date: form.due_date || null,
+      category: form.category, reminder_time: form.reminder_time || null,
+      due_date: form.due_date || null, memory_id: form.memory_id || null,
     }]);
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -75,6 +76,17 @@ export default function AddTaskForm({ onAdded }) {
           <option value="other">Other</option>
         </select>
       </div>
+      {memories.length > 0 && (
+        <div style={{ marginBottom: '10px' }}>
+          <select style={{ ...inp, width: '100%', color: form.memory_id ? 'var(--text)' : 'var(--text-muted)' }}
+            value={form.memory_id} onChange={e => set('memory_id', e.target.value)}>
+            <option value="">Link to contact (optional)</option>
+            {memories.map(m => (
+              <option key={m.id} value={m.id}>{m.name}{m.company ? ` · ${m.company}` : ''}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div style={{ marginBottom: '10px' }}>
         <textarea
