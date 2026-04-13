@@ -1,6 +1,7 @@
 // MemoryLog.jsx — filterable list of memory entries (prospect/contact log)
 
 import React, { useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 function renderWithLinks(text) {
   const urlRegex = /https?:\/\/[^\s>]+/g;
@@ -9,26 +10,26 @@ function renderWithLinks(text) {
   let match;
   while ((match = urlRegex.exec(text)) !== null) {
     if (match.index > last) result.push(text.slice(last, match.index));
-    const url = match[0].replace(/[>.,)]+$/, ''); // strip trailing Slack punctuation
+    const url = match[0].replace(/[>.,)]+$/, '');
     result.push(
       <a key={match.index} href={url} target="_blank" rel="noreferrer"
-        style={{ color: '#7c3aed', wordBreak: 'break-all' }}>{url}</a>
+        style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>{url}</a>
     );
     last = match.index + match[0].length;
   }
   if (last < text.length) result.push(text.slice(last));
   return result;
 }
-import { supabase } from '../lib/supabase';
 
 const FILTERS = ['all', 'linkedin-signal', 'post-like', 'event-met', 'warm-prospect', 'other'];
+const TAGS    = ['linkedin-signal', 'post-like', 'event-met', 'warm-prospect', 'other'];
 
-const TAG_COLORS = {
-  'linkedin-signal': '#60a5fa',
-  'post-like':       '#a78bfa',
-  'event-met':       '#4ade80',
-  'warm-prospect':   '#fb923c',
-  'other':           '#94a3b8',
+const TAG_VARS = {
+  'linkedin-signal': 'var(--tag-li)',
+  'post-like':       'var(--tag-pl)',
+  'event-met':       'var(--tag-em)',
+  'warm-prospect':   'var(--tag-wp)',
+  'other':           'var(--tag-ot)',
 };
 
 const TAG_LABELS = {
@@ -40,65 +41,73 @@ const TAG_LABELS = {
 };
 
 const s = {
-  filterRow: { display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' },
+  filterRow:  { display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' },
   filterBtn: (active) => ({
-    background: active ? '#7c3aed' : '#1a1a1a',
-    border: `1px solid ${active ? '#7c3aed' : '#2a2a2a'}`,
+    background: active ? 'var(--accent)' : 'var(--surface)',
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
     borderRadius: '6px',
-    color: active ? '#fff' : '#888',
-    cursor: 'pointer',
-    fontSize: '13px',
-    padding: '5px 14px',
+    color: active ? '#fff' : 'var(--text-muted)',
+    cursor: 'pointer', fontSize: '13px', padding: '5px 14px',
   }),
   card: {
-    background: '#1a1a1a',
-    border: '1px solid #2a2a2a',
-    borderRadius: '10px',
-    padding: '14px 16px',
-    marginBottom: '10px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: '12px',
+    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px',
+    padding: '14px 16px', marginBottom: '10px',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px',
   },
-  name: { fontSize: '15px', fontWeight: '600', color: '#e0e0e0', marginBottom: '2px' },
-  company: { fontSize: '13px', color: '#888', marginBottom: '6px' },
-  context: { fontSize: '13px', color: '#aaa', fontStyle: 'italic', marginBottom: '6px' },
-  meta: { fontSize: '12px', color: '#555', display: 'flex', gap: '12px', flexWrap: 'wrap' },
+  editCard: {
+    background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: '12px',
+    padding: '14px 16px', marginBottom: '10px',
+  },
+  name:    { fontSize: '15px', fontWeight: '600', color: 'var(--text)', marginBottom: '2px' },
+  company: { fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px' },
+  context: { fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: '6px' },
+  meta:    { fontSize: '12px', color: 'var(--text-faint)', display: 'flex', gap: '12px', flexWrap: 'wrap' },
   badge: (tag) => ({
-    background: TAG_COLORS[tag] + '22',
-    border: `1px solid ${TAG_COLORS[tag]}44`,
-    borderRadius: '4px',
-    color: TAG_COLORS[tag],
-    fontSize: '11px',
-    padding: '2px 7px',
-    display: 'inline-block',
-    marginBottom: '6px',
+    background: TAG_VARS[tag] + '22',
+    border: `1px solid ${TAG_VARS[tag]}55`,
+    borderRadius: '4px', color: TAG_VARS[tag],
+    fontSize: '11px', padding: '2px 7px', display: 'inline-block', marginBottom: '6px',
   }),
-  deleteBtn: {
-    background: 'transparent',
-    border: '1px solid #3a3a3a',
-    borderRadius: '5px',
-    color: '#555',
-    cursor: 'pointer',
-    fontSize: '12px',
-    padding: '4px 10px',
-    flexShrink: 0,
+  input: {
+    background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px',
+    color: 'var(--text)', fontSize: '13px', padding: '6px 10px',
+    width: '100%', boxSizing: 'border-box', marginBottom: '8px',
   },
-  empty: { color: '#444', fontSize: '14px', textAlign: 'center', padding: '40px 0' },
+  select: {
+    background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px',
+    color: 'var(--text)', fontSize: '13px', padding: '6px 10px',
+    width: '100%', boxSizing: 'border-box', marginBottom: '8px',
+  },
+  btnRow:    { display: 'flex', gap: '6px', marginTop: '4px' },
+  saveBtn:   { background: 'var(--accent)', border: 'none', borderRadius: '5px', color: '#fff', cursor: 'pointer', fontSize: '12px', padding: '5px 14px' },
+  cancelBtn: { background: 'transparent', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', padding: '5px 14px' },
+  editBtn:   { background: 'transparent', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', padding: '4px 10px', flexShrink: 0 },
+  deleteBtn: { background: 'transparent', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '12px', padding: '4px 10px', flexShrink: 0 },
+  empty:     { color: 'var(--text-faint)', fontSize: '14px', textAlign: 'center', padding: '40px 0' },
 };
 
 export default function MemoryLog({ memories }) {
   const [filter, setFilter] = useState('all');
   const [lightbox, setLightbox] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
 
-  const visible = filter === 'all'
-    ? memories
-    : memories.filter((m) => m.tag === filter);
+  const visible = filter === 'all' ? memories : memories.filter(m => m.tag === filter);
 
-  async function deleteMemory(id) {
-    await supabase.from('memories').delete().eq('id', id);
+  function startEdit(m) {
+    setEditingId(m.id);
+    setEditData({ name: m.name, company: m.company || '', context: m.context || '', tag: m.tag || 'other' });
   }
+
+  async function saveEdit(id) {
+    await supabase.from('memories').update({
+      name: editData.name.trim(), company: editData.company.trim(),
+      context: editData.context.trim(), tag: editData.tag,
+    }).eq('id', id);
+    setEditingId(null);
+  }
+
+  async function deleteMemory(id) { await supabase.from('memories').delete().eq('id', id); }
 
   function fmtDate(iso) {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -107,57 +116,67 @@ export default function MemoryLog({ memories }) {
   return (
     <div>
       {lightbox && (
-        <div
-          onClick={() => setLightbox(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000, cursor: 'zoom-out',
-          }}
-        >
-          <img src={lightbox} alt="preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: '8px' }} />
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, cursor: 'zoom-out',
+        }}>
+          <img src={lightbox} alt="preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: '10px' }} />
         </div>
       )}
-      {/* Filter buttons */}
+
       <div style={s.filterRow}>
-        {FILTERS.map((f) => (
+        {FILTERS.map(f => (
           <button key={f} style={s.filterBtn(filter === f)} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : TAG_LABELS[f]}
           </button>
         ))}
       </div>
 
-      {visible.length === 0 && (
-        <div style={s.empty}>No memories in this view.</div>
-      )}
+      {visible.length === 0 && <div style={s.empty}>No memories in this view.</div>}
 
-      {visible.map((m) => (
-        <div key={m.id} style={s.card}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={s.badge(m.tag)}>{TAG_LABELS[m.tag]}</div>
-            <div style={s.name}>{m.name}</div>
-            {m.company && <div style={s.company}>{m.company}</div>}
-            {m.context && <div style={s.context}>"{renderWithLinks(m.context)}"</div>}
-            {m.attachment_url && (
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
-                {m.attachment_url.split(',').map((url, i) => (
-                  <img
-                    key={i}
-                    src={url}
-                    alt={`screenshot ${i + 1}`}
-                    onClick={() => setLightbox(url)}
-                    style={{ maxWidth: '160px', maxHeight: '90px', borderRadius: '6px', display: 'block', cursor: 'zoom-in' }}
-                  />
-                ))}
+      {visible.map(m => {
+        if (editingId === m.id) {
+          return (
+            <div key={m.id} style={s.editCard}>
+              <input style={s.input} value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} placeholder="Name" />
+              <input style={s.input} value={editData.company} onChange={e => setEditData({ ...editData, company: e.target.value })} placeholder="Company" />
+              <textarea style={{ ...s.input, resize: 'vertical', minHeight: '60px' }} value={editData.context} onChange={e => setEditData({ ...editData, context: e.target.value })} placeholder="Context" />
+              <select style={s.select} value={editData.tag} onChange={e => setEditData({ ...editData, tag: e.target.value })}>
+                {TAGS.map(t => <option key={t} value={t}>{TAG_LABELS[t]}</option>)}
+              </select>
+              <div style={s.btnRow}>
+                <button style={s.saveBtn} onClick={() => saveEdit(m.id)}>Save</button>
+                <button style={s.cancelBtn} onClick={() => setEditingId(null)}>Cancel</button>
               </div>
-            )}
-            <div style={s.meta}>
-              <span>Added {fmtDate(m.added_at)}</span>
+            </div>
+          );
+        }
+
+        return (
+          <div key={m.id} style={s.card}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={s.badge(m.tag)}>{TAG_LABELS[m.tag]}</div>
+              <div style={s.name}>{m.name}</div>
+              {m.company && <div style={s.company}>{m.company}</div>}
+              {m.context && <div style={s.context}>"{renderWithLinks(m.context)}"</div>}
+              {m.attachment_url && (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+                  {m.attachment_url.split(',').map((url, i) => (
+                    <img key={i} src={url} alt={`screenshot ${i + 1}`} onClick={() => setLightbox(url)}
+                      style={{ maxWidth: '160px', maxHeight: '90px', borderRadius: '6px', display: 'block', cursor: 'zoom-in' }} />
+                  ))}
+                </div>
+              )}
+              <div style={s.meta}><span>Added {fmtDate(m.added_at)}</span></div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              <button style={s.editBtn} onClick={() => startEdit(m)}>Edit</button>
+              <button style={s.deleteBtn} onClick={() => deleteMemory(m.id)}>Del</button>
             </div>
           </div>
-          <button style={s.deleteBtn} onClick={() => deleteMemory(m.id)}>Del</button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

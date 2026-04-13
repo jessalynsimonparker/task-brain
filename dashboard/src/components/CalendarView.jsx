@@ -24,6 +24,9 @@ const CATEGORY_COLORS = {
 };
 
 export default function CalendarView({ tasks }) {
+  const [view, setView] = React.useState('month');
+  const [date, setDate] = React.useState(new Date());
+  const [prevView, setPrevView] = React.useState(null);
   // Convert tasks to react-big-calendar event format.
   // Tasks with a due_date show up on that day.
   // Tasks with only a reminder_time also show up (as a timed event).
@@ -76,39 +79,60 @@ export default function CalendarView({ tasks }) {
     // The wrapper div overrides react-big-calendar's default light styles
     // to match our dark theme. These CSS custom properties target the library's
     // internal class names.
-    <div style={{ height: 600 }} className="rbc-dark">
+    <div style={{ height: prevView ? 640 : 600 }} className="rbc-theme">
       <style>{`
-        .rbc-dark .rbc-calendar { background: #111; color: #e0e0e0; }
-        .rbc-dark .rbc-header { background: #1a1a1a; border-color: #2a2a2a; color: #888; font-size: 12px; }
-        .rbc-dark .rbc-month-view,
-        .rbc-dark .rbc-time-view,
-        .rbc-dark .rbc-agenda-view { border-color: #2a2a2a; }
-        .rbc-dark .rbc-day-bg { border-color: #2a2a2a; }
-        .rbc-dark .rbc-off-range-bg { background: #0d0d0d; }
-        .rbc-dark .rbc-today { background: #1a1a2e; }
-        .rbc-dark .rbc-toolbar button {
-          background: #1a1a1a; border-color: #2a2a2a; color: #aaa;
+        .rbc-theme .rbc-calendar { background: var(--bg); color: var(--text); }
+        .rbc-theme .rbc-header { background: var(--surface); border-color: var(--border); color: var(--text-muted); font-size: 12px; }
+        .rbc-theme .rbc-month-view,
+        .rbc-theme .rbc-time-view,
+        .rbc-theme .rbc-agenda-view { border-color: var(--border); }
+        .rbc-theme .rbc-day-bg { border-color: var(--border); }
+        .rbc-theme .rbc-off-range-bg { background: var(--surface2); }
+        .rbc-theme .rbc-today { background: var(--surface); border: 1px solid var(--accent); }
+        .rbc-theme .rbc-toolbar button {
+          background: var(--surface); border-color: var(--border); color: var(--text-muted);
           border-radius: 6px; padding: 5px 12px; cursor: pointer;
         }
-        .rbc-dark .rbc-toolbar button.rbc-active,
-        .rbc-dark .rbc-toolbar button:hover { background: #4f46e5; color: #fff; border-color: #4f46e5; }
-        .rbc-dark .rbc-toolbar-label { color: #e0e0e0; font-weight: 600; }
-        .rbc-dark .rbc-date-cell { color: #666; }
-        .rbc-dark .rbc-date-cell.rbc-now { color: #4f46e5; font-weight: 700; }
-        .rbc-dark .rbc-time-slot { border-color: #1e1e1e; }
-        .rbc-dark .rbc-timeslot-group { border-color: #2a2a2a; }
-        .rbc-dark .rbc-time-gutter .rbc-timeslot-group { color: #555; font-size: 11px; }
-        .rbc-dark .rbc-current-time-indicator { background: #4f46e5; }
-        .rbc-dark .rbc-show-more { color: #4f46e5; background: transparent; }
+        .rbc-theme .rbc-toolbar button.rbc-active,
+        .rbc-theme .rbc-toolbar button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .rbc-theme .rbc-toolbar-label { color: var(--text); font-weight: 600; }
+        .rbc-theme .rbc-date-cell { color: var(--text-muted); }
+        .rbc-theme .rbc-date-cell.rbc-now a,
+        .rbc-theme .rbc-date-cell.rbc-now { color: var(--accent); font-weight: 700; }
+        .rbc-theme .rbc-time-slot { border-color: var(--surface2); }
+        .rbc-theme .rbc-timeslot-group { border-color: var(--border); }
+        .rbc-theme .rbc-time-gutter .rbc-timeslot-group { color: var(--text-faint); font-size: 11px; }
+        .rbc-theme .rbc-current-time-indicator { background: var(--accent); }
+        .rbc-theme .rbc-show-more { color: var(--accent); background: transparent; }
+        .rbc-theme .rbc-event:focus { outline: none; }
+        .rbc-theme .rbc-time-content { border-color: var(--border); }
+        .rbc-theme .rbc-time-header-content { border-color: var(--border); }
       `}</style>
+      {prevView && (
+        <button
+          onClick={() => { setView(prevView); setPrevView(null); }}
+          style={{
+            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px',
+            color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px',
+            padding: '5px 12px', marginBottom: '8px',
+          }}
+        >
+          ← Back to {prevView.charAt(0).toUpperCase() + prevView.slice(1)}
+        </button>
+      )}
       <Calendar
         localizer={localizer}
         events={events}
-        defaultView="month"
+        view={view}
+        date={date}
+        onView={(v) => { setView(v); setPrevView(null); }}
+        onNavigate={setDate}
+        onDrillDown={(d) => { setPrevView(view); setDate(d); setView('day'); }}
+        drilldownView="day"
         views={['month', 'week', 'day']}
         eventPropGetter={eventStyleGetter}
         style={{ height: '100%' }}
-        popup // show "+X more" popup when events overflow a cell
+        popup
         tooltipAccessor={(e) => e.resource?.notes || e.title}
       />
     </div>
