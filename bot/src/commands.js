@@ -116,7 +116,7 @@ async function handleTask(text, say) {
     ? `\nReminder: *${new Date(reminder_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}*`
     : '';
 
-  await say(`✅ Task created: *${title}*\nCategory: ${category}${reminderNote}`);
+  await say(`📝 _"${text.trim()}"_\n✅ Task created: *${title}*\nCategory: ${category}${reminderNote}`);
 }
 
 /**

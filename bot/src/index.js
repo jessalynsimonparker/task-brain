@@ -111,7 +111,7 @@ async function handleHelp(say) {
 
 *Memory Log*
 \`/note Jane Smith / Acme — met at SaaStr\` — save a contact
-\`/who Jane\` — look up how you know someone
+\`/whois Jane\` — look up how you know someone
 📸 *Drop a screenshot* — Claude auto-saves name, company, context
 📸 *Drop screenshot + type a URL* — URL is saved with the memory
 \`/addto [name]\` *+ screenshot* — add screenshot to existing contact
@@ -203,7 +203,7 @@ app.message(async ({ message, say }) => {
   else if (text === '!done-tasks')      await handleDoneTasks(say);
   else if (text.startsWith('!done '))   await handleDone(text.slice(6), say);
   else if (text.startsWith('!snooze ')) await handleSnooze(text.slice(8), say);
-  else if (text.startsWith('!who '))    await handleWho(text.slice(5), say);
+  else if (text.startsWith('!whois '))  await handleWho(text.slice(7), say);
   else if (text === '!help')            await handleHelp(say);
 });
 
@@ -239,7 +239,7 @@ app.command('/snooze', async ({ ack, command, say }) => {
   await handleSnooze(command.text, say);
 });
 
-app.command('/who', async ({ ack, command, say }) => {
+app.command('/whois', async ({ ack, command, say }) => {
   await ack();
   await handleWho(command.text, say);
 });
