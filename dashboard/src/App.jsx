@@ -8,6 +8,7 @@ import AddTaskForm from './components/AddTaskForm';
 import MemoryLog from './components/MemoryLog';
 import AddMemoryForm from './components/AddMemoryForm';
 import CalendarView from './components/CalendarView';
+import LoginPage from './components/LoginPage';
 
 const GLOBAL_STYLE = `
   * { box-sizing: border-box; }
@@ -161,12 +162,22 @@ export default function App() {
   const [memories, setMemories] = useState([]);
   const [activeTab, setActiveTab] = useState('Tasks');
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('tb-theme') || 'dark');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('tb-theme', theme);
   }, [theme]);
+
+  // Auth state
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const loadTasks = useCallback(async () => {
     const { data } = await supabase.from('tasks').select('*').order('added_at', { ascending: false });
@@ -179,8 +190,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    Promise.all([loadTasks(), loadMemories()]).then(() => setLoading(false));
-  }, [loadTasks, loadMemories]);
+    if (user) Promise.all([loadTasks(), loadMemories()]).then(() => setLoading(false));
+  }, [user, loadTasks, loadMemories]);
 
   useEffect(() => {
     const taskSub = supabase.channel('tasks-channel')
@@ -191,6 +202,10 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(taskSub); supabase.removeChannel(memorySub); };
   }, [loadTasks, loadMemories]);
+
+  if (!user) {
+    return <><style>{GLOBAL_STYLE}</style><LoginPage /></>;
+  }
 
   if (loading) {
     return (
@@ -220,14 +235,16 @@ export default function App() {
             <button
               onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
               title="Toggle theme"
-              style={{
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer',
-                fontSize: '14px', lineHeight: 1, padding: '6px 10px',
-                boxShadow: 'var(--shadow-sm)',
-              }}
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '6px 10px', boxShadow: 'var(--shadow-sm)' }}
             >
               {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              title="Sign out"
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', padding: '6px 12px', boxShadow: 'var(--shadow-sm)' }}
+            >
+              Sign out
             </button>
           </div>
         </div>
@@ -259,7 +276,7 @@ export default function App() {
         {/* Content */}
         {activeTab === 'Tasks' && (
           <>
-            <AddTaskForm onAdded={loadTasks} memories={memories} />
+            <AddTaskForm onAdded={loadTasks} memories={memories} userId={user.id} />
             <ScreenshotUploader
               onUploaded={(url) => {
                 navigator.clipboard?.writeText(url);
@@ -271,7 +288,7 @@ export default function App() {
         )}
         {activeTab === 'Memory Log' && (
           <>
-            <AddMemoryForm onAdded={loadMemories} />
+            <AddMemoryForm onAdded={loadMemories} userId={user.id} />
             <MemoryLog memories={memories} />
           </>
         )}

@@ -11,7 +11,7 @@ const inp = {
 
 const EMPTY = { name: '', company: '', context: '', tag: 'other', reminder_time: '' };
 
-export default function AddMemoryForm({ onAdded }) {
+export default function AddMemoryForm({ onAdded, userId }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -26,6 +26,7 @@ export default function AddMemoryForm({ onAdded }) {
       name: form.name.trim(), company: form.company.trim() || null,
       context: form.context.trim() || null, tag: form.tag,
       reminder_time: form.reminder_time || null,
+      user_id: userId || null,
     }]);
     setSaving(false);
     if (err) { setError(err.message); return; }

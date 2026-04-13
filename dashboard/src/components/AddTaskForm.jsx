@@ -11,7 +11,7 @@ const inp = {
 
 const EMPTY = { title: '', notes: '', category: 'other', reminder_time: '', due_date: '', memory_id: '' };
 
-export default function AddTaskForm({ onAdded, memories = [] }) {
+export default function AddTaskForm({ onAdded, memories = [], userId }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -48,6 +48,7 @@ export default function AddTaskForm({ onAdded, memories = [] }) {
       title: form.title.trim(), notes: form.notes.trim() || null,
       category: form.category, reminder_time: form.reminder_time || null,
       due_date: form.due_date || null, memory_id: form.memory_id || null,
+      user_id: userId || null,
     }]);
     setSaving(false);
     if (err) { setError(err.message); return; }
