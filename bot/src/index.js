@@ -57,7 +57,7 @@ async function uploadToStorage(slackUrl, fileId, mimeType) {
 }
 
 function extractUrls(text) {
-  return text.match(/https?:\/\/[^\s]+/g) || [];
+  return (text.match(/https?:\/\/[^\s>]+/g) || []).map(u => u.replace(/[>.,)]+$/, ''));
 }
 
 // ─── Shared handlers (used by both ! commands and / slash commands) ───────────

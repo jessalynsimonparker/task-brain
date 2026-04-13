@@ -1,6 +1,24 @@
 // MemoryLog.jsx — filterable list of memory entries (prospect/contact log)
 
 import React, { useState } from 'react';
+
+function renderWithLinks(text) {
+  const urlRegex = /https?:\/\/[^\s>]+/g;
+  const result = [];
+  let last = 0;
+  let match;
+  while ((match = urlRegex.exec(text)) !== null) {
+    if (match.index > last) result.push(text.slice(last, match.index));
+    const url = match[0].replace(/[>.,)]+$/, ''); // strip trailing Slack punctuation
+    result.push(
+      <a key={match.index} href={url} target="_blank" rel="noreferrer"
+        style={{ color: '#7c3aed', wordBreak: 'break-all' }}>{url}</a>
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) result.push(text.slice(last));
+  return result;
+}
 import { supabase } from '../lib/supabase';
 
 const FILTERS = ['all', 'linkedin-signal', 'post-like', 'event-met', 'warm-prospect', 'other'];
@@ -72,6 +90,7 @@ const s = {
 
 export default function MemoryLog({ memories }) {
   const [filter, setFilter] = useState('all');
+  const [lightbox, setLightbox] = useState(null);
 
   const visible = filter === 'all'
     ? memories
@@ -87,6 +106,18 @@ export default function MemoryLog({ memories }) {
 
   return (
     <div>
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, cursor: 'zoom-out',
+          }}
+        >
+          <img src={lightbox} alt="preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: '8px' }} />
+        </div>
+      )}
       {/* Filter buttons */}
       <div style={s.filterRow}>
         {FILTERS.map((f) => (
@@ -106,17 +137,17 @@ export default function MemoryLog({ memories }) {
             <div style={s.badge(m.tag)}>{TAG_LABELS[m.tag]}</div>
             <div style={s.name}>{m.name}</div>
             {m.company && <div style={s.company}>{m.company}</div>}
-            {m.context && <div style={s.context}>"{m.context}"</div>}
+            {m.context && <div style={s.context}>"{renderWithLinks(m.context)}"</div>}
             {m.attachment_url && (
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
                 {m.attachment_url.split(',').map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noreferrer">
-                    <img
-                      src={url}
-                      alt={`screenshot ${i + 1}`}
-                      style={{ maxWidth: '160px', maxHeight: '90px', borderRadius: '6px', display: 'block' }}
-                    />
-                  </a>
+                  <img
+                    key={i}
+                    src={url}
+                    alt={`screenshot ${i + 1}`}
+                    onClick={() => setLightbox(url)}
+                    style={{ maxWidth: '160px', maxHeight: '90px', borderRadius: '6px', display: 'block', cursor: 'zoom-in' }}
+                  />
                 ))}
               </div>
             )}
