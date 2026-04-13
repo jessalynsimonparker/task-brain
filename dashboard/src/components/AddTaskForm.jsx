@@ -9,7 +9,7 @@ const inp = {
   padding: '9px 13px', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
 };
 
-const EMPTY = { title: '', notes: '', category: 'other', reminder_time: '', due_date: '', memory_id: '' };
+const EMPTY = { title: '', notes: '', category: 'other', reminder_time: '', due_date: '', memory_id: '', assigned_to: '' };
 
 export default function AddTaskForm({ onAdded, memories = [], userId }) {
   const [form, setForm] = useState(EMPTY);
@@ -49,6 +49,7 @@ export default function AddTaskForm({ onAdded, memories = [], userId }) {
       category: form.category, reminder_time: form.reminder_time || null,
       due_date: form.due_date || null, memory_id: form.memory_id || null,
       user_id: userId || null,
+      assigned_to: form.assigned_to.trim() || null,
     }]);
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -88,6 +89,14 @@ export default function AddTaskForm({ onAdded, memories = [], userId }) {
           </select>
         </div>
       )}
+      <div style={{ marginBottom: '10px' }}>
+        <input
+          style={{ ...inp, width: '100%', color: form.assigned_to ? 'var(--text)' : 'var(--text-muted)' }}
+          placeholder="Assign to (email, optional)"
+          value={form.assigned_to}
+          onChange={e => set('assigned_to', e.target.value)}
+        />
+      </div>
 
       <div style={{ marginBottom: '10px' }}>
         <textarea

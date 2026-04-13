@@ -50,6 +50,7 @@ export default function TaskList({ tasks, memories = [] }) {
       title: t.title, notes: t.notes || '', category: t.category,
       reminder_time: t.reminder_time ? t.reminder_time.slice(0, 16) : '',
       due_date: t.due_date || '', memory_id: t.memory_id || '',
+      assigned_to: t.assigned_to || '',
     });
   }
 
@@ -61,6 +62,7 @@ export default function TaskList({ tasks, memories = [] }) {
       reminder_time: editData.reminder_time || null,
       due_date: editData.due_date || null,
       memory_id: editData.memory_id || null,
+      assigned_to: editData.assigned_to.trim() || null,
     }).eq('id', id);
     setEditingId(null);
   }
@@ -119,12 +121,18 @@ export default function TaskList({ tasks, memories = [] }) {
                 <input style={{ ...inp, flex: 1 }} type="date" value={editData.due_date} onChange={e => setEditData({ ...editData, due_date: e.target.value })} />
               </div>
               {memories.length > 0 && (
-                <select style={{ ...inp, width: '100%', marginBottom: '10px', color: editData.memory_id ? 'var(--text)' : 'var(--text-muted)' }}
+                <select style={{ ...inp, width: '100%', marginBottom: '8px', color: editData.memory_id ? 'var(--text)' : 'var(--text-muted)' }}
                   value={editData.memory_id} onChange={e => setEditData({ ...editData, memory_id: e.target.value })}>
                   <option value="">No linked contact</option>
                   {memories.map(m => <option key={m.id} value={m.id}>{m.name}{m.company ? ` · ${m.company}` : ''}</option>)}
                 </select>
               )}
+              <input
+                style={{ ...inp, width: '100%', marginBottom: '10px' }}
+                placeholder="Assign to (email)"
+                value={editData.assigned_to}
+                onChange={e => setEditData({ ...editData, assigned_to: e.target.value })}
+              />
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => saveEdit(task.id)} style={{ background: 'var(--accent)', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, padding: '7px 18px', boxShadow: '0 2px 8px var(--accent-glow)' }}>Save</button>
                 <button onClick={() => setEditingId(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px', padding: '7px 14px' }}>Cancel</button>
@@ -166,14 +174,21 @@ export default function TaskList({ tasks, memories = [] }) {
                 {task.title}
               </span>
             </div>
-            {task.memory_id && (() => {
-              const contact = memories.find(m => m.id === task.memory_id);
-              return contact ? (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'var(--accent)18', border: '1px solid var(--accent)40', borderRadius: '6px', color: 'var(--accent)', fontSize: '12px', fontWeight: 500, padding: '2px 9px', marginBottom: '6px' }}>
-                  → {contact.name}{contact.company ? ` · ${contact.company}` : ''}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: task.memory_id || task.assigned_to ? '6px' : 0 }}>
+              {task.memory_id && (() => {
+                const contact = memories.find(m => m.id === task.memory_id);
+                return contact ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--accent)18', border: '1px solid var(--accent)40', borderRadius: '6px', color: 'var(--accent)', fontSize: '12px', fontWeight: 500, padding: '2px 9px' }}>
+                    → {contact.name}{contact.company ? ` · ${contact.company}` : ''}
+                  </div>
+                ) : null;
+              })()}
+              {task.assigned_to && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--tag-pl)18', border: '1px solid var(--tag-pl)40', borderRadius: '6px', color: 'var(--tag-pl)', fontSize: '12px', fontWeight: 500, padding: '2px 9px' }}>
+                  ↗ {task.assigned_to}
                 </div>
-              ) : null;
-            })()}
+              )}
+            </div>
             {task.notes && <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '5px', lineHeight: 1.5 }}>{task.notes}</div>}
             <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-faint)' }}>
               {task.due_date && <span>Due {task.due_date}</span>}
