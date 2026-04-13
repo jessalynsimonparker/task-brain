@@ -113,7 +113,7 @@ async function handleTask(text, say) {
   if (error) { await say(`❌ Couldn't create task: ${error.message}`); return; }
 
   const reminderNote = reminder_time
-    ? `\nReminder: *${new Date(reminder_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}*`
+    ? `\nReminder: *${new Date(reminder_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Los_Angeles' })}*`
     : '';
 
   await say(`📝 _"${text.trim()}"_\n✅ Task created: *${title}*\nCategory: ${category}${reminderNote}`);
@@ -166,7 +166,7 @@ async function handleTasks(say) {
   const lines = data.map((t, i) => {
     const due = t.due_date ? ` · due ${t.due_date}` : '';
     const reminder = t.reminder_time
-      ? ` · ⏰ ${new Date(t.reminder_time).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`
+      ? ` · ⏰ ${new Date(t.reminder_time).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Los_Angeles' })}`
       : '';
     return `${i + 1}. [${t.category}] *${t.title}*${due}${reminder}`;
   });
@@ -220,7 +220,7 @@ async function handleSnooze(text, say) {
     } else {
       newTime = parseReminderTime(timeStr);
       timeLabel = newTime
-        ? newTime.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+        ? newTime.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Los_Angeles' })
         : null;
     }
   } else {

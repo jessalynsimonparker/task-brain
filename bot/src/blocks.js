@@ -8,7 +8,7 @@
 function taskBlock(task) {
   const due = task.due_date ? ` · due ${task.due_date}` : '';
   const reminder = task.reminder_time
-    ? ` · ⏰ ${new Date(task.reminder_time).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`
+    ? ` · ⏰ ${new Date(task.reminder_time).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Los_Angeles' })}`
     : '';
 
   return [
