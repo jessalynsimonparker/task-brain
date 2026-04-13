@@ -52,4 +52,41 @@ Examples:
   return parsed;
 }
 
-module.exports = { parseTaskWithAI };
+async function parseNoteWithAI(text) {
+  const message = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 256,
+    messages: [
+      {
+        role: 'user',
+        content: `Parse this contact note and reply ONLY with valid JSON, no markdown:
+"${text}"
+
+{
+  "name": "person's full name",
+  "company": "company name or null if not mentioned",
+  "context": "how they know them / what the interaction was, or null if not mentioned",
+  "tag": "one of: linkedin-signal, post-like, event-met, warm-prospect, other"
+}
+
+Tag rules:
+- linkedin-signal: saw their LinkedIn activity, they engaged with a post, connection request
+- post-like: they liked or commented on a post
+- event-met: met in person at an event, conference, meetup
+- warm-prospect: interested in buying, referred, inbound lead
+- other: anything else
+
+Examples:
+"Jane Smith from Acme, met her at SaaStr last week" → {"name":"Jane Smith","company":"Acme","context":"met at SaaStr last week","tag":"event-met"}
+"john@corp.com liked our linkedin post" → {"name":"john@corp.com","company":"corp","context":"liked our LinkedIn post","tag":"post-like"}
+"Mike - warm lead from Sarah, interested in Q3" → {"name":"Mike","company":null,"context":"warm lead from Sarah, interested in Q3","tag":"warm-prospect"}`
+      }
+    ]
+  });
+
+  const raw = message.content[0].text.trim();
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  return JSON.parse(cleaned);
+}
+
+module.exports = { parseTaskWithAI, parseNoteWithAI };

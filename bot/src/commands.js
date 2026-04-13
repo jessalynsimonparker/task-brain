@@ -2,7 +2,7 @@
 // Each exported function receives (text, say) and does its work.
 
 const supabase = require('./supabase');
-const { parseTaskWithAI } = require('./taskParser');
+const { parseTaskWithAI, parseNoteWithAI } = require('./taskParser');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -127,53 +127,30 @@ async function handleTask(text, say) {
  *   !note Jane Smith / Acme Corp — met at SaaStr, interested in Q3 deal
  */
 async function handleNote(text, say) {
-  // Accepts any of:
-  //   Jane Smith / Acme — met at SaaStr
-  //   Jane Smith / Acme - met at SaaStr
-  //   Jane Smith - met at SaaStr     (no company)
-  //   Jane Smith / Acme              (no context)
-  //   Jane Smith                     (name only)
-
-  let name, company = null, context = null;
-
-  // name / company — context  (em dash or hyphen)
-  const full = text.match(/^(.+?)\s*\/\s*(.+?)\s*(?:—|-{1,2})\s*(.+)$/);
-  if (full) {
-    [, name, company, context] = full;
-  } else {
-    // name / company  (no context separator)
-    const withCompany = text.match(/^(.+?)\s*\/\s*(.+)$/);
-    if (withCompany) {
-      [, name, company] = withCompany;
-    } else {
-      // name — context  (no company)
-      const withContext = text.match(/^(.+?)\s*(?:—|-{1,2})\s*(.+)$/);
-      if (withContext) {
-        [, name, context] = withContext;
-      } else {
-        // just a name
-        name = text.trim();
-      }
-    }
-  }
-
-  name = name.trim();
-  if (!name) {
-    await say('❌ At minimum include a name. Example: `/note Jane Smith / Acme - met at SaaStr`');
+  if (!text.trim()) {
+    await say('❌ Tell me about the person. Example: `/note Jane Smith from Acme, met at SaaStr`');
     return;
   }
 
-  const { error } = await supabase.from('memories').insert([{
-    name,
-    company: company?.trim() || null,
-    context: context?.trim() || null,
-  }]);
+  let name, company, context, tag;
+  try {
+    const parsed = await parseNoteWithAI(text.trim());
+    name = parsed.name;
+    company = parsed.company || null;
+    context = parsed.context || null;
+    tag = parsed.tag || 'other';
+  } catch (err) {
+    console.error('[handleNote] AI parse failed:', err.message);
+    await say('❌ Couldn\'t parse that. Try: `/note Jane Smith from Acme - met at SaaStr`');
+    return;
+  }
 
+  const { error } = await supabase.from('memories').insert([{ name, company, context, tag }]);
   if (error) { await say(`❌ Couldn't save memory: ${error.message}`); return; }
 
-  const companyStr = company ? ` at *${company.trim()}*` : '';
-  const contextStr = context ? `\n_"${context.trim()}"_` : '';
-  await say(`🧠 Memory saved: *${name}*${companyStr}${contextStr}`);
+  const companyStr = company ? ` at *${company}*` : '';
+  const contextStr = context ? `\n_"${context}"_` : '';
+  await say(`🧠 Memory saved: *${name}*${companyStr} · ${tag}${contextStr}`);
 }
 
 /**
