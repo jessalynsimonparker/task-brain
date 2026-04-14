@@ -53,6 +53,10 @@ Examples:
 }
 
 async function parseNoteWithAI(text) {
+  // Extract URLs before sending to Claude so we can guarantee they're preserved
+  const urlRegex = /https?:\/\/[^\s>]+/g;
+  const urls = (text.match(urlRegex) || []).map(u => u.replace(/[>.,)]+$/, ''));
+
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 256,
@@ -65,9 +69,11 @@ async function parseNoteWithAI(text) {
 {
   "name": "person's full name",
   "company": "company name or null if not mentioned",
-  "context": "how they know them / what the interaction was, or null if not mentioned",
+  "context": "how they know them / what the interaction was — MUST include any URLs from the input verbatim, or null if nothing to include",
   "tag": "one of: linkedin-signal, post-like, event-met, warm-prospect, other"
 }
+
+IMPORTANT: If the input contains any URLs (http:// or https://), you MUST include them in the context field exactly as written.
 
 Tag rules:
 - linkedin-signal: saw their LinkedIn activity, they engaged with a post, connection request
@@ -79,14 +85,25 @@ Tag rules:
 Examples:
 "Jane Smith from Acme, met her at SaaStr last week" → {"name":"Jane Smith","company":"Acme","context":"met at SaaStr last week","tag":"event-met"}
 "john@corp.com liked our linkedin post" → {"name":"john@corp.com","company":"corp","context":"liked our LinkedIn post","tag":"post-like"}
-"Mike - warm lead from Sarah, interested in Q3" → {"name":"Mike","company":null,"context":"warm lead from Sarah, interested in Q3","tag":"warm-prospect"}`
+"Mike https://linkedin.com/in/mike - warm lead" → {"name":"Mike","company":null,"context":"warm lead https://linkedin.com/in/mike","tag":"warm-prospect"}`
       }
     ]
   });
 
   const raw = message.content[0].text.trim();
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  return JSON.parse(cleaned);
+  const parsed = JSON.parse(cleaned);
+
+  // Safety net: re-append any URLs that Claude dropped
+  if (urls.length > 0) {
+    const contextHasAllUrls = urls.every(u => parsed.context?.includes(u));
+    if (!contextHasAllUrls) {
+      const missing = urls.filter(u => !parsed.context?.includes(u));
+      parsed.context = [parsed.context, ...missing].filter(Boolean).join(' ');
+    }
+  }
+
+  return parsed;
 }
 
 module.exports = { parseTaskWithAI, parseNoteWithAI };
