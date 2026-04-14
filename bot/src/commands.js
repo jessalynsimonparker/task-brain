@@ -132,9 +132,14 @@ async function handleNote(text, say) {
     return;
   }
 
+  // Slack wraps URLs as <https://url.com> or <https://url.com|label> — unwrap them
+  const cleaned = text.trim()
+    .replace(/<(https?:\/\/[^|>]+)\|[^>]+>/g, '$1')  // <url|label> → url
+    .replace(/<(https?:\/\/[^>]+)>/g, '$1');           // <url> → url
+
   let name, company, context, tag;
   try {
-    const parsed = await parseNoteWithAI(text.trim());
+    const parsed = await parseNoteWithAI(cleaned);
     name = parsed.name;
     company = parsed.company || null;
     context = parsed.context || null;
