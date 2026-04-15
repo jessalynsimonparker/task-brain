@@ -3,6 +3,11 @@
 
 require('dotenv').config();
 
+// Keep the process alive if Slack sends an unexpected disconnect during reconnect
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException] Caught error, staying alive:', err.message);
+});
+
 const { App } = require('@slack/bolt');
 const axios = require('axios');
 const { handleTask, handleNote, handleDone, handleSnooze, handleWho } = require('./commands');
