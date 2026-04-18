@@ -70,12 +70,13 @@ function tasksListBlocks(tasks) {
  * Build a reminder message block (fires when reminder_time hits).
  */
 function reminderBlock(task) {
+  const snoozeStr = task.snooze_count > 0 ? ` · avoided ${task.snooze_count}×` : '';
   return [
     {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `🧠 *${task.title}*${task.notes ? `\n${task.notes}` : ''}\n━━━━━━━━━━━━━━━━\n_${task.category} · Task Brain_`,
+        text: `🧠 *${task.title}*${task.notes ? `\n${task.notes}` : ''}\n━━━━━━━━━━━━━━━━\n_${task.category} · Task Brain${snoozeStr}_`,
       },
     },
     {
@@ -106,4 +107,36 @@ function reminderBlock(task) {
   ];
 }
 
-module.exports = { taskBlock, tasksListBlocks, reminderBlock };
+function linkPromptBlock(task, memory) {
+  const memLabel = memory.company ? `${memory.name} · ${memory.company}` : memory.name;
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `🔗 Link *${task.title}* to *${memLabel}* (just saved)?`,
+      },
+    },
+    {
+      type: 'actions',
+      block_id: `link_prompt_${task.id}`,
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '✅ Link it', emoji: true },
+          style: 'primary',
+          action_id: 'link_task_yes',
+          value: JSON.stringify({ taskId: task.id, memoryId: memory.id }),
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Skip', emoji: true },
+          action_id: 'link_task_skip',
+          value: task.id,
+        },
+      ],
+    },
+  ];
+}
+
+module.exports = { taskBlock, tasksListBlocks, reminderBlock, linkPromptBlock };

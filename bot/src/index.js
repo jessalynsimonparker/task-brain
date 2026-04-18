@@ -13,7 +13,7 @@ const axios = require('axios');
 const { handleTask, handleNote, handleDone, handleSnooze, handleWho } = require('./commands');
 const { parseProspectFromImages } = require('./imageParser');
 const { startReminderPoller } = require('./reminders');
-const { tasksListBlocks } = require('./blocks');
+const { tasksListBlocks, reminderBlock, linkPromptBlock } = require('./blocks');
 const supabase = require('./supabase');
 
 // ─── Validate required env vars on startup ───────────────────────────────────
@@ -41,6 +41,10 @@ const app = new App({
 
 const CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 
+// ─── In-memory state ──────────────────────────────────────────────────────────
+// Tracks the most recently saved memory per Slack user (resets on bot restart)
+const lastMemoryByUser = new Map(); // userId → { id, name, company }
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function uploadToStorage(slackUrl, fileId, mimeType) {
@@ -65,7 +69,68 @@ function extractUrls(text) {
   return (text.match(/https?:\/\/[^\s>]+/g) || []).map(u => u.replace(/[>.,)]+$/, ''));
 }
 
-// ─── Shared handlers (used by both ! commands and / slash commands) ───────────
+// Append new screenshots/context to an existing memory
+async function appendToMemory(memoryId, imageFiles, text, say) {
+  const { data: memory, error: fetchErr } = await supabase
+    .from('memories').select('*').eq('id', memoryId).single();
+
+  if (fetchErr || !memory) {
+    await say(`❌ Couldn't find that memory.`);
+    return;
+  }
+
+  // Parse new images for additional context
+  let additionalContext = '';
+  if (imageFiles.length > 0) {
+    try {
+      const imageUrls = imageFiles.map(f => f.url_private_download || f.url_private);
+      const cleanText = text.replace(/save with.+/i, '').trim();
+      const parsed = await parseProspectFromImages(imageUrls, cleanText);
+      additionalContext = parsed.context || '';
+    } catch (e) {
+      console.error('[appendToMemory] parse error:', e.message);
+    }
+  }
+
+  // Upload new images
+  const newUrls = await Promise.all(
+    imageFiles.map(f => uploadToStorage(f.url_private_download || f.url_private, f.id, f.mimetype))
+  );
+  const validUrls = newUrls.filter(Boolean);
+
+  const newContext = [memory.context, additionalContext].filter(Boolean).join(' | ');
+  const existingUrls = memory.attachment_url ? memory.attachment_url.split(',') : [];
+  const allUrls = [...existingUrls, ...validUrls].join(',');
+
+  await supabase.from('memories').update({
+    context: newContext || null,
+    attachment_url: allUrls || null,
+  }).eq('id', memoryId);
+
+  await say(`📎 Added to *${memory.name}*${additionalContext ? `\n_"${additionalContext}"_` : ''}`);
+}
+
+// After creating a task, check if there's a recent memory to link it to
+async function maybePromptTaskLink(task, userId, text, say) {
+  if (!task || !userId) return;
+  const mem = lastMemoryByUser.get(userId);
+  if (!mem) return;
+
+  // Auto-link if user explicitly said so
+  if (/\blink\s*(it\b|to\b)/i.test(text)) {
+    await supabase.from('tasks').update({ memory_id: mem.id }).eq('id', task.id);
+    await say(`🔗 Linked *${task.title}* to *${mem.name}*.`);
+    return;
+  }
+
+  // Otherwise prompt
+  await say({
+    text: `Link this task to ${mem.name}?`,
+    blocks: linkPromptBlock(task, mem),
+  });
+}
+
+// ─── Shared handlers ──────────────────────────────────────────────────────────
 
 async function handleTasksBlocks(say) {
   const { data, error } = await supabase
@@ -88,7 +153,7 @@ async function handleDoneTasks(say) {
     .select('*')
     .eq('done', true)
     .order('added_at', { ascending: false })
-    .limit(20); // show last 20 completed
+    .limit(20);
 
   if (error) { await say(`❌ Couldn't fetch tasks: ${error.message}`); return; }
   if (!data?.length) { await say('No completed tasks yet.'); return; }
@@ -107,6 +172,7 @@ async function handleHelp(say) {
 ━━━━━━━━━━━━━━━━
 *Tasks*
 \`/task call sarah tomorrow 9am\` — create a task (AI understands natural language)
+\`/task call sarah, link it\` — create task + auto-link to last saved memory
 \`/tasks\` — list open tasks with Done/Snooze buttons
 \`/done-tasks\` — list completed tasks
 \`/done [name]\` — mark task complete
@@ -115,32 +181,63 @@ async function handleHelp(say) {
 \`/snooze [name] friday 2pm\` — snooze to custom time
 
 *Memory Log*
-\`/note Jane Smith / Acme — met at SaaStr\` — save a contact
+\`/note Jane Smith from Acme, met at SaaStr\` — save a contact (any format)
 \`/whois Jane\` — look up how you know someone
 📸 *Drop a screenshot* — Claude auto-saves name, company, context
-📸 *Drop screenshot + type a URL* — URL is saved with the memory
-\`/addto [name]\` *+ screenshot* — add screenshot to existing contact
+📸 *Drop screenshot + "save with last"* — adds to most recent memory
+📸 *Drop screenshot + "save with Paul"* — adds to Paul's memory
+\`!addto [name]\` *+ screenshot* — add screenshot to existing contact
 
 *Other*
 \`/help\` — show this list`
   );
 }
 
-// ─── Image upload handler (shared logic) ─────────────────────────────────────
+// ─── Image upload handler ─────────────────────────────────────────────────────
 
-async function handleImageUpload(imageFiles, text, say) {
-  // !addto / /addto: append screenshot to existing memory
+async function handleImageUpload(imageFiles, text, say, userId) {
+  // ── "save with last" ───────────────────────────────────────────────────────
+  if (/\bsave with last\b/i.test(text)) {
+    if (userId && lastMemoryByUser.has(userId)) {
+      const mem = lastMemoryByUser.get(userId);
+      await say(`📎 Adding to *${mem.name}*...`);
+      await appendToMemory(mem.id, imageFiles, text, say);
+    } else {
+      await say(`❌ No recent memory to append to — save a memory first.`);
+    }
+    return;
+  }
+
+  // ── "save with [name]" ─────────────────────────────────────────────────────
+  const saveWithMatch = text.match(/\bsave with\s+(.+)/i);
+  if (saveWithMatch) {
+    const nameQuery = saveWithMatch[1].trim();
+    const { data: matches } = await supabase
+      .from('memories').select('*')
+      .ilike('name', `%${nameQuery}%`)
+      .order('added_at', { ascending: false }).limit(1);
+
+    if (matches?.length) {
+      await say(`📎 Adding to *${matches[0].name}*...`);
+      await appendToMemory(matches[0].id, imageFiles, text, say);
+      if (userId) lastMemoryByUser.set(userId, { id: matches[0].id, name: matches[0].name, company: matches[0].company });
+    } else {
+      await say(`ℹ️ Couldn't find a memory for _"${nameQuery}"_ — saving as new memory.`);
+      await createNewMemory(imageFiles, text, say, userId);
+    }
+    return;
+  }
+
+  // ── !addto / /addto ────────────────────────────────────────────────────────
   const addtoMatch = text.match(/^!?addto\s+(.+)/i);
   if (addtoMatch) {
     const nameQuery = addtoMatch[1].trim();
     await say(`🔍 Looking up _${nameQuery}_ and adding screenshot...`);
 
     const { data: matches } = await supabase
-      .from('memories')
-      .select('*')
+      .from('memories').select('*')
       .ilike('name', `%${nameQuery}%`)
-      .order('added_at', { ascending: false })
-      .limit(1);
+      .order('added_at', { ascending: false }).limit(1);
 
     if (!matches?.length) {
       await say(`❌ No memory found matching _"${nameQuery}"_ — upload without /addto to create a new entry.`);
@@ -160,7 +257,11 @@ async function handleImageUpload(imageFiles, text, say) {
     return;
   }
 
-  // New memory from image(s)
+  // ── New memory ─────────────────────────────────────────────────────────────
+  await createNewMemory(imageFiles, text, say, userId);
+}
+
+async function createNewMemory(imageFiles, text, say, userId) {
   await say(`🔍 Got ${imageFiles.length > 1 ? imageFiles.length + ' images' : 'your image'} — parsing with Claude...`);
 
   try {
@@ -176,11 +277,15 @@ async function handleImageUpload(imageFiles, text, say) {
     );
     const attachmentUrl = storedUrls.filter(Boolean).join(',');
 
-    const { error } = await supabase.from('memories').insert([{
+    const { data: inserted, error } = await supabase.from('memories').insert({
       name, company, context: contextWithUrls, tag: 'other',
       attachment_url: attachmentUrl || null,
-    }]);
+    }).select('id, name, company').single();
+
     if (error) throw new Error(error.message);
+
+    // Track as most recent memory for this user
+    if (userId) lastMemoryByUser.set(userId, { id: inserted.id, name: inserted.name, company: inserted.company });
 
     await say(`🧠 Memory saved!\n*Name:* ${name}\n*Company:* ${company}\n*Context:* ${context}${attachmentUrl ? '\n📎 Screenshot saved' : ''}`);
   } catch (err) {
@@ -195,15 +300,22 @@ app.message(async ({ message, say }) => {
   if (message.channel !== CHANNEL_ID) return;
 
   const text = (message.text || '').trim();
+  const userId = message.user;
   const imageFiles = (message.files || []).filter(f => f.mimetype?.startsWith('image/'));
 
   if (imageFiles.length > 0) {
-    await handleImageUpload(imageFiles, text, say);
+    await handleImageUpload(imageFiles, text, say, userId);
     return;
   }
 
-  if (text.startsWith('!task '))        await handleTask(text.slice(6), say);
-  else if (text.startsWith('!note '))   await handleNote(text.slice(6), say);
+  if (text.startsWith('!task ')) {
+    const task = await handleTask(text.slice(6), say);
+    await maybePromptTaskLink(task, userId, text, say);
+  }
+  else if (text.startsWith('!note ')) {
+    const mem = await handleNote(text.slice(6), say);
+    if (mem && userId) lastMemoryByUser.set(userId, mem);
+  }
   else if (text === '!tasks')           await handleTasksBlocks(say);
   else if (text === '!done-tasks')      await handleDoneTasks(say);
   else if (text.startsWith('!done '))   await handleDone(text.slice(6), say);
@@ -212,16 +324,18 @@ app.message(async ({ message, say }) => {
   else if (text === '!help')            await handleHelp(say);
 });
 
-// ─── Slash command listeners (/commands with autocomplete) ────────────────────
+// ─── Slash command listeners ──────────────────────────────────────────────────
 
 app.command('/task', async ({ ack, command, say }) => {
   await ack();
-  await handleTask(command.text, say);
+  const task = await handleTask(command.text, say);
+  await maybePromptTaskLink(task, command.user_id, command.text, say);
 });
 
 app.command('/note', async ({ ack, command, say }) => {
   await ack();
-  await handleNote(command.text, say);
+  const mem = await handleNote(command.text, say);
+  if (mem && command.user_id) lastMemoryByUser.set(command.user_id, mem);
 });
 
 app.command('/tasks', async ({ ack, say }) => {
@@ -251,8 +365,7 @@ app.command('/whois', async ({ ack, command, say }) => {
 
 app.command('/addto', async ({ ack, command, say }) => {
   await ack();
-  // /addto needs an image — instruct user to use it with a file upload message
-  await say(`To add a screenshot to _${command.text}_'s memory, type \`!addto ${command.text}\` and attach the image in the same message. Slash commands can't accept file uploads directly.`);
+  await say(`To add a screenshot to _${command.text}_'s memory, type \`!addto ${command.text}\` and attach the image in the same message.`);
 });
 
 app.command('/help', async ({ ack, say }) => {
@@ -274,8 +387,12 @@ app.action('task_snooze_1hr', async ({ ack, body, client }) => {
   await ack();
   const taskId = body.actions[0].value;
   const newTime = new Date(Date.now() + 60 * 60_000).toISOString();
-  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
-  await supabase.from('tasks').update({ reminder_time: newTime, slack_scheduled: false }).eq('id', taskId);
+  const { data: task } = await supabase.from('tasks').select('title, snooze_count').eq('id', taskId).single();
+  await supabase.from('tasks').update({
+    reminder_time: newTime,
+    slack_scheduled: false,
+    snooze_count: (task?.snooze_count || 0) + 1,
+  }).eq('id', taskId);
   await client.chat.postMessage({ channel: body.channel.id, text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.` });
 });
 
@@ -285,9 +402,25 @@ app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(10, 0, 0, 0);
-  const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
-  await supabase.from('tasks').update({ reminder_time: tomorrow.toISOString(), slack_scheduled: false }).eq('id', taskId);
+  const { data: task } = await supabase.from('tasks').select('title, snooze_count').eq('id', taskId).single();
+  await supabase.from('tasks').update({
+    reminder_time: tomorrow.toISOString(),
+    slack_scheduled: false,
+    snooze_count: (task?.snooze_count || 0) + 1,
+  }).eq('id', taskId);
   await client.chat.postMessage({ channel: body.channel.id, text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.` });
+});
+
+app.action('link_task_yes', async ({ ack, body, client }) => {
+  await ack();
+  const { taskId, memoryId } = JSON.parse(body.actions[0].value);
+  const { data: mem } = await supabase.from('memories').select('name').eq('id', memoryId).single();
+  await supabase.from('tasks').update({ memory_id: memoryId }).eq('id', taskId);
+  await client.chat.postMessage({ channel: body.channel.id, text: `🔗 Linked to *${mem?.name || 'contact'}*.` });
+});
+
+app.action('link_task_skip', async ({ ack }) => {
+  await ack();
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────

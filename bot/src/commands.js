@@ -104,19 +104,20 @@ async function handleTask(text, say) {
     reminder_time = null;
   }
 
-  const { error } = await supabase.from('tasks').insert([{
+  const { data: inserted, error } = await supabase.from('tasks').insert({
     title,
     category,
     reminder_time,
-  }]);
+  }).select('id, title').single();
 
-  if (error) { await say(`❌ Couldn't create task: ${error.message}`); return; }
+  if (error) { await say(`❌ Couldn't create task: ${error.message}`); return null; }
 
   const reminderNote = reminder_time
     ? `\nReminder: *${new Date(reminder_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Los_Angeles' })}*`
     : '';
 
   await say(`📝 _"${text.trim()}"_\n✅ Task created: *${title}*\nCategory: ${category}${reminderNote}`);
+  return { id: inserted.id, title: inserted.title };
 }
 
 /**
@@ -150,12 +151,13 @@ async function handleNote(text, say) {
     return;
   }
 
-  const { error } = await supabase.from('memories').insert([{ name, company, context, tag }]);
-  if (error) { await say(`❌ Couldn't save memory: ${error.message}`); return; }
+  const { data: inserted, error } = await supabase.from('memories').insert({ name, company, context, tag }).select('id, name, company').single();
+  if (error) { await say(`❌ Couldn't save memory: ${error.message}`); return null; }
 
   const companyStr = company ? ` at *${company}*` : '';
   const contextStr = context ? `\n_"${context}"_` : '';
   await say(`🧠 Memory saved: *${name}*${companyStr} · ${tag}${contextStr}`);
+  return { id: inserted.id, name: inserted.name, company: inserted.company };
 }
 
 /**
