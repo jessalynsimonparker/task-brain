@@ -41,6 +41,10 @@ async function fireReminders(slackClient, channelId) {
   }
 
   // ── Hourly re-reminders for overdue tasks ────────────────────────────────────
+  // Skip on weekends (Sat/Sun in PT) — initial reminders still fire.
+  const dayPT = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' });
+  if (dayPT === 'Sat' || dayPT === 'Sun') return;
+
   const { data: overdueTasks } = await supabase
     .from('tasks')
     .select('*')
