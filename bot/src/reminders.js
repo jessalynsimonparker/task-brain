@@ -6,6 +6,10 @@ const { reminderBlock } = require('./blocks');
 let lastMorningBriefDate = '';
 
 async function fireReminders(slackClient, channelId) {
+  // Pause all reminder pings on weekends (Sat/Sun in PT).
+  const dayPT = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' });
+  if (dayPT === 'Sat' || dayPT === 'Sun') return;
+
   const now = new Date();
   const nowIso = now.toISOString();
   const oneHourAgo = new Date(now - 60 * 60_000).toISOString();
@@ -41,10 +45,6 @@ async function fireReminders(slackClient, channelId) {
   }
 
   // ── Hourly re-reminders for overdue tasks ────────────────────────────────────
-  // Skip on weekends (Sat/Sun in PT) — initial reminders still fire.
-  const dayPT = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' });
-  if (dayPT === 'Sat' || dayPT === 'Sun') return;
-
   const { data: overdueTasks } = await supabase
     .from('tasks')
     .select('*')
