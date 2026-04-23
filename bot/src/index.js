@@ -380,7 +380,12 @@ app.action('task_done', async ({ ack, body, client }) => {
   const taskId = body.actions[0].value;
   const { data: task } = await supabase.from('tasks').select('title').eq('id', taskId).single();
   await supabase.from('tasks').update({ done: true }).eq('id', taskId);
-  await client.chat.postMessage({ channel: body.channel.id, text: `✅ Marked done: *${task?.title || 'task'}*` });
+  await client.chat.update({
+    channel: body.channel.id,
+    ts: body.message.ts,
+    text: `✅ Done: ${task?.title || 'task'}`,
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `✅ Done: *${task?.title || 'task'}*` } }],
+  });
 });
 
 app.action('task_snooze_1hr', async ({ ack, body, client }) => {
@@ -393,7 +398,12 @@ app.action('task_snooze_1hr', async ({ ack, body, client }) => {
     slack_scheduled: false,
     snooze_count: (task?.snooze_count || 0) + 1,
   }).eq('id', taskId);
-  await client.chat.postMessage({ channel: body.channel.id, text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.` });
+  await client.chat.update({
+    channel: body.channel.id,
+    ts: body.message.ts,
+    text: `⏰ Snoozed 1hr: ${task?.title || 'task'}`,
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `⏰ Snoozed *${task?.title || 'task'}* — reminding you in 1 hour.` } }],
+  });
 });
 
 app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
@@ -408,7 +418,12 @@ app.action('task_snooze_tomorrow', async ({ ack, body, client }) => {
     slack_scheduled: false,
     snooze_count: (task?.snooze_count || 0) + 1,
   }).eq('id', taskId);
-  await client.chat.postMessage({ channel: body.channel.id, text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.` });
+  await client.chat.update({
+    channel: body.channel.id,
+    ts: body.message.ts,
+    text: `🌙 Snoozed til tomorrow: ${task?.title || 'task'}`,
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `🌙 Snoozed *${task?.title || 'task'}* — reminding you tomorrow at 10am.` } }],
+  });
 });
 
 app.action('link_task_yes', async ({ ack, body, client }) => {

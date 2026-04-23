@@ -1,4 +1,4 @@
-// reminders.js — polls every 60s, fires reminders + hourly re-reminders + daily morning briefing
+// reminders.js — polls every 60s, fires reminders + daily morning briefing
 
 const supabase = require('./supabase');
 const { reminderBlock } = require('./blocks');
@@ -10,11 +10,8 @@ async function fireReminders(slackClient, channelId) {
   const dayPT = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' });
   if (dayPT === 'Sat' || dayPT === 'Sun') return;
 
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const oneHourAgo = new Date(now - 60 * 60_000).toISOString();
+  const nowIso = new Date().toISOString();
 
-  // ── Initial reminders (first fire) ──────────────────────────────────────────
   const { data: dueTasks, error } = await supabase
     .from('tasks')
     .select('*')
@@ -41,29 +38,6 @@ async function fireReminders(slackClient, channelId) {
       console.log(`[reminders] Sent reminder for: "${task.title}"`);
     } catch (err) {
       console.error(`[reminders] Failed: "${task.title}":`, err.message);
-    }
-  }
-
-  // ── Hourly re-reminders for overdue tasks ────────────────────────────────────
-  const { data: overdueTasks } = await supabase
-    .from('tasks')
-    .select('*')
-    .eq('done', false)
-    .eq('slack_scheduled', true)
-    .lte('reminder_time', nowIso)
-    .or(`last_reminded_at.is.null,last_reminded_at.lte.${oneHourAgo}`);
-
-  for (const task of overdueTasks || []) {
-    try {
-      await slackClient.chat.postMessage({
-        channel: channelId,
-        text: `⏰ Still pending: ${task.title}`,
-        blocks: reminderBlock(task),
-      });
-      await supabase.from('tasks').update({ last_reminded_at: nowIso }).eq('id', task.id);
-      console.log(`[reminders] Hourly re-reminder for: "${task.title}"`);
-    } catch (err) {
-      console.error(`[reminders] Re-reminder failed: "${task.title}":`, err.message);
     }
   }
 }
